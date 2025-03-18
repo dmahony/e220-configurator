@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-E220 LoRa Module Configurator
------------------------------
+E220-915MHz LoRa Module Configurator
+-----------------------------------
 A cross-platform application for configuring EBYTE E220 series LoRa modules.
+Specifically optimized for the 915MHz version.
 Provides both GUI and CLI interfaces for complete module configuration.
 
 Usage:
@@ -48,15 +49,15 @@ __version__ = "1.0.0"
 class ModuleMode(Enum):
     """E220 operating modes based on M0 and M1 pins"""
     NORMAL = auto()          # M0=0, M1=0: Transparent transmission mode
-    WOR_SENDING = auto()     # M0=1, M1=0: WOR transmitting mode
-    WOR_RECEIVING = auto()   # M0=0, M1=1: WOR receiving mode
-    CONFIGURATION = auto()   # M0=1, M1=1: Configuration mode (for AT commands)
+    WOR_TRANSMIT = auto()    # M0=0, M1=1: WOR transmitting mode
+    WOR_RECEIVE = auto()     # M0=1, M1=0: WOR receiving mode
+    CONFIGURATION = auto()   # M0=1, M1=1: Configuration mode (for setting parameters)
 
 class E220Module:
     """
     Handles communication with the E220 LoRa module
     """
-    def __init__(self, port=None, baudrate=9600, timeout=1, m0_pin=None, m1_pin=None, aux_pin=None, use_gpio=False):
+    def __init__(self, port=None, baudrate=9600, timeout=1, m0_pin=None, m1_pin=None, aux_pin=None, use_gpio=False, manual_config=False):
         self.port = port
         self.baudrate = baudrate
         self.timeout = timeout
@@ -68,6 +69,9 @@ class E220Module:
         self.m1_pin = m1_pin
         self.aux_pin = aux_pin
         self.use_gpio = use_gpio
+        
+        # Flag to indicate if the user has manually set configuration mode
+        self.manual_config = manual_config
         
         # Initialize GPIO if available and requested
         if self.use_gpio:
@@ -113,17 +117,19 @@ class E220Module:
         """Set M0 and M1 pins for the specified mode"""
         if not self.use_gpio or not (self.m0_pin and self.m1_pin):
             logger.warning("Cannot set mode pins: GPIO control not available or pins not specified")
-            return False
+            logger.info("Please ensure M0 and M1 pins are set correctly manually")
+            # Return True to allow operation to continue if user has manually set the pins
+            return True
             
         if mode == ModuleMode.NORMAL:
             self.GPIO.output(self.m0_pin, GPIO.LOW)
             self.GPIO.output(self.m1_pin, GPIO.LOW)
-        elif mode == ModuleMode.WOR_SENDING:
-            self.GPIO.output(self.m0_pin, GPIO.HIGH)
-            self.GPIO.output(self.m1_pin, GPIO.LOW)
-        elif mode == ModuleMode.WOR_RECEIVING:
+        elif mode == ModuleMode.WOR_TRANSMIT:
             self.GPIO.output(self.m0_pin, GPIO.LOW)
             self.GPIO.output(self.m1_pin, GPIO.HIGH)
+        elif mode == ModuleMode.WOR_RECEIVE:
+            self.GPIO.output(self.m0_pin, GPIO.HIGH)
+            self.GPIO.output(self.m1_pin, GPIO.LOW)
         elif mode == ModuleMode.CONFIGURATION:
             self.GPIO.output(self.m0_pin, GPIO.HIGH)
             self.GPIO.output(self.m1_pin, GPIO.HIGH)
@@ -151,6 +157,12 @@ class E220Module:
             logger.debug(f"Module already in {mode} mode")
             return True
             
+        # For configuration mode, check if it's already in that mode
+        if mode == ModuleMode.CONFIGURATION and self._check_config_mode():
+            logger.info("Module already in configuration mode")
+            self.current_mode = ModuleMode.CONFIGURATION
+            return True
+            
         logger.info(f"Setting module to {mode} mode")
         result = self._set_mode_pins(mode)
         if result:
@@ -158,7 +170,7 @@ class E220Module:
             
         return result
     
-    def send_command(self, command, timeout=1):
+    def send_at_command(self, command, timeout=1):
         """Send AT command to the module and receive response"""
         if not self.serial or not self.serial.is_open:
             logger.error("Not connected to module")
@@ -167,10 +179,13 @@ class E220Module:
         # Clear any pending data
         self.serial.reset_input_buffer()
         
+        # Add CR+LF to the command if not already present
+        if not command.endswith('\r\n'):
+            command += '\r\n'
+            
         # Send command
-        cmd_bytes = (command + '\r\n').encode('ascii')
-        logger.debug(f"Sending command: {command}")
-        self.serial.write(cmd_bytes)
+        logger.debug(f"Sending command: {command.strip()}")
+        self.serial.write(command.encode('utf-8'))
         
         # Read response
         response = ""
@@ -178,25 +193,68 @@ class E220Module:
         
         while time.time() - start_time < timeout:
             if self.serial.in_waiting:
-                char = self.serial.read().decode('ascii', errors='ignore')
+                char = self.serial.read(1).decode('utf-8', errors='ignore')
                 response += char
                 
-                # Check if response is complete
-                if response.endswith('\r\n'):
+                # For AT commands, responses typically end with "OK" or "ERR"
+                if "OK" in response or "ERR" in response:
+                    # Wait a bit more to get complete response
+                    time.sleep(0.05)
+                    if self.serial.in_waiting:
+                        response += self.serial.read(self.serial.in_waiting).decode('utf-8', errors='ignore')
                     break
                     
             time.sleep(0.01)
         
-        response = response.strip()
-        logger.debug(f"Response received: {response}")
-        return response
+        if response:
+            logger.debug(f"Response received: {response.strip()}")
+        else:
+            logger.warning(f"No response received for command: {command.strip()}")
+            
+        return response.strip()
     
     def enter_config_mode(self):
-        """Enter configuration mode for sending AT commands"""
+        """Enter configuration mode for sending commands"""
+        # First check if the module is already in configuration mode
+        if self._check_config_mode():
+            logger.info("Module already in configuration mode")
+            self.current_mode = ModuleMode.CONFIGURATION
+            return True
+        # If not, try to set the mode using pins
         return self.set_mode(ModuleMode.CONFIGURATION)
+        
+    def _check_config_mode(self):
+        """Check if the module is already in configuration mode
+        Returns True if the module is in configuration mode, False otherwise"""
+        if not self.serial or not self.serial.is_open:
+            return False
+            
+        # Send a simple query command to check if we're in configuration mode
+        try:
+            # Clear any pending data
+            self.serial.reset_input_buffer()
+            
+            # Send AT command to check if we're in config mode
+            response = self.send_at_command("AT")
+            
+            # If we get a valid response, we're in config mode
+            if response and "OK" in response:
+                logger.info("Configuration mode verified - received valid AT response")
+                return True
+                
+            logger.debug(f"No valid configuration mode response: {response if response else 'No data'}")
+        except Exception as e:
+            logger.debug(f"Exception when checking config mode: {e}")
+            
+        return False
     
     def exit_config_mode(self):
         """Exit configuration mode and return to normal mode"""
+        # If using manual configuration, don't exit config mode
+        if hasattr(self, 'manual_config') and self.manual_config:
+            logger.info("Not exiting configuration mode - manual configuration is enabled")
+            return True
+            
         return self.set_mode(ModuleMode.NORMAL)
     
     def get_parameters(self):
@@ -207,92 +265,139 @@ class E220Module:
         params = {}
         
         try:
-            # Read module address
-            response = self.send_command("AT+ADDR=?")
-            if response.startswith("AT+ADDR="):
-                params["address"] = int(response[8:])
+            # Query all parameters using AT commands
+            # Address
+            response = self.send_at_command("AT+ADDR=?")
+            if response and "=" in response:
+                addr_value = response.split("=")[1]
+                try:
+                    params["address"] = int(addr_value)
+                except ValueError:
+                    logger.error(f"Invalid address value: {addr_value}")
             
-            # Read channel
-            response = self.send_command("AT+CHANNEL=?")
-            if response.startswith("AT+CHANNEL="):
-                params["channel"] = int(response[11:])
+            # Channel
+            response = self.send_at_command("AT+CHANNEL=?")
+            if response and "=" in response:
+                chan_value = response.split("=")[1]
+                try:
+                    params["chan"] = int(chan_value)
+                    # Calculate frequency (for 915MHz version: 850.125 + channel*1MHz)
+                    params["frequency"] = 850.125 + params["chan"]
+                except ValueError:
+                    logger.error(f"Invalid channel value: {chan_value}")
             
-            # Read UART parameters
-            response = self.send_command("AT+UART=?")
-            if response.startswith("AT+UART="):
-                uart_parts = response[8:].split(',')
-                if len(uart_parts) == 2:
-                    params["baudRate"] = int(uart_parts[0])
-                    params["parity"] = int(uart_parts[1])
+            # UART settings
+            response = self.send_at_command("AT+UART=?")
+            if response and "=" in response:
+                uart_values = response.split("=")[1]
+                if "," in uart_values:
+                    baud_idx, parity_idx = uart_values.split(",")
+                    try:
+                        params["uart_baud"] = int(baud_idx)
+                        params["parity"] = int(parity_idx)
+                    except ValueError:
+                        logger.error(f"Invalid UART values: {uart_values}")
             
-            # Read air rate
-            response = self.send_command("AT+RATE=?")
-            if response.startswith("AT+RATE="):
-                params["airRate"] = int(response[8:])
+            # Air rate
+            response = self.send_at_command("AT+RATE=?")
+            if response and "=" in response:
+                rate_value = response.split("=")[1]
+                try:
+                    params["air_data_rate"] = int(rate_value)
+                except ValueError:
+                    logger.error(f"Invalid air rate value: {rate_value}")
             
-            # Read packet size
-            response = self.send_command("AT+PACKET=?")
-            if response.startswith("AT+PACKET="):
-                params["packetSize"] = int(response[10:])
+            # Transmit power
+            response = self.send_at_command("AT+POWER=?")
+            if response and "=" in response:
+                power_value = response.split("=")[1]
+                try:
+                    params["transmission_power"] = int(power_value)
+                except ValueError:
+                    logger.error(f"Invalid power value: {power_value}")
             
-            # Read transmit power
-            response = self.send_command("AT+POWER=?")
-            if response.startswith("AT+POWER="):
-                params["transmitPower"] = int(response[9:])
+            # Transmission mode
+            response = self.send_at_command("AT+TRANS=?")
+            if response and "=" in response:
+                trans_value = response.split("=")[1]
+                try:
+                    params["fixed_transmission"] = int(trans_value)
+                except ValueError:
+                    logger.error(f"Invalid transmission mode value: {trans_value}")
             
-            # Read WOR period
-            response = self.send_command("AT+WTIME=?")
-            if response.startswith("AT+WTIME="):
-                params["worPeriod"] = int(response[9:])
-                
-            # Read WOR role
-            response = self.send_command("AT+WOR=?")
-            if response.startswith("AT+WOR="):
-                params["worRole"] = int(response[7:])
-                
-            # Read transmission mode
-            response = self.send_command("AT+TRANS=?")
-            if response.startswith("AT+TRANS="):
-                params["transMode"] = int(response[9:])
-                
-            # Read LBT enable
-            response = self.send_command("AT+LBT=?")
-            if response.startswith("AT+LBT="):
-                params["lbtEnable"] = int(response[7:])
-                
-            # Read ambient RSSI enable
-            response = self.send_command("AT+ERSSI=?")
-            if response.startswith("AT+ERSSI="):
-                params["rssiEnable"] = int(response[9:])
-                
-            # Read data RSSI enable
-            response = self.send_command("AT+DRSSI=?")
-            if response.startswith("AT+DRSSI="):
-                params["dataRssiEnable"] = int(response[9:])
-                
-            # Read Network ID
-            # Note: Not directly readable, using default value
-            params["netID"] = 0
+            # WOR period
+            response = self.send_at_command("AT+WTIME=?")
+            if response and "=" in response:
+                wtime_value = response.split("=")[1]
+                try:
+                    params["wake_up_time"] = int(wtime_value)
+                except ValueError:
+                    logger.error(f"Invalid WOR period value: {wtime_value}")
             
-            # Key is not readable for security reasons
-            params["key"] = 0
+            # FEC is always enabled in E220, so we set it to 1
+            params["fec"] = 1
             
-            # Read WOR delay
-            response = self.send_command("AT+DELAY=?")
-            if response.startswith("AT+DELAY="):
-                params["worDelay"] = int(response[9:])
-                
-            # Read software switching mode
-            response = self.send_command("AT+SWITCH=?")
-            if response.startswith("AT+SWITCH="):
-                params["switchMode"] = int(response[10:])
-                
+            # IO drive mode (push-pull is default)
+            params["io_drive_mode"] = 1
+            
+            # Additional E220-specific parameters
+            # LBT (Listen Before Talk)
+            response = self.send_at_command("AT+LBT=?")
+            if response and "=" in response:
+                lbt_value = response.split("=")[1]
+                try:
+                    params["lbt"] = int(lbt_value)
+                except ValueError:
+                    logger.error(f"Invalid LBT value: {lbt_value}")
+            
+            # RSSI Ambient Noise Enable
+            response = self.send_at_command("AT+ERSSI=?")
+            if response and "=" in response:
+                erssi_value = response.split("=")[1]
+                try:
+                    params["erssi"] = int(erssi_value)
+                except ValueError:
+                    logger.error(f"Invalid ERSSI value: {erssi_value}")
+            
+            # Receive data RSSI
+            response = self.send_at_command("AT+DRSSI=?")
+            if response and "=" in response:
+                drssi_value = response.split("=")[1]
+                try:
+                    params["drssi"] = int(drssi_value)
+                except ValueError:
+                    logger.error(f"Invalid DRSSI value: {drssi_value}")
+            
+            # Software switching mode
+            response = self.send_at_command("AT+SWITCH=?")
+            if response and "=" in response:
+                switch_value = response.split("=")[1]
+                try:
+                    params["sw_switch"] = int(switch_value)
+                except ValueError:
+                    logger.error(f"Invalid software switch value: {switch_value}")
+            
+            # Packet length
+            response = self.send_at_command("AT+PACKET=?")
+            if response and "=" in response:
+                packet_value = response.split("=")[1]
+                try:
+                    params["packet"] = int(packet_value)
+                except ValueError:
+                    logger.error(f"Invalid packet value: {packet_value}")
+                    
         except Exception as e:
             logger.error(f"Error reading parameters: {e}")
             params = None
             
-        finally:
-            self.exit_config_mode()
+        # Don't exit configuration mode if we are using manual configuration
+        # This lets the user continue working with the module without constantly toggling pins
+        if hasattr(self, 'manual_config') and self.manual_config:
+            logger.info("Keeping module in configuration mode (manual configuration selected)")
+            return params
+        
+        # Exit configuration mode
+        self.exit_config_mode()
             
         return params
     
@@ -304,109 +409,112 @@ class E220Module:
         success = True
         
         try:
-            # Set address
+            # Prepare and send AT commands for each parameter
+            
+            # Address
             if "address" in params:
-                response = self.send_command(f"AT+ADDR={params['address']}")
-                if not response.endswith("=OK"):
-                    logger.error(f"Failed to set address: {response}")
+                cmd = f"AT+ADDR={params['address']}"
+                response = self.send_at_command(cmd)
+                if not response or "OK" not in response:
+                    logger.warning(f"Failed to set address: {response}")
                     success = False
             
-            # Set channel
-            if "channel" in params:
-                response = self.send_command(f"AT+CHANNEL={params['channel']}")
-                if not response.endswith("=OK"):
-                    logger.error(f"Failed to set channel: {response}")
+            # Channel
+            if "chan" in params:
+                cmd = f"AT+CHANNEL={params['chan']}"
+                response = self.send_at_command(cmd)
+                if not response or "OK" not in response:
+                    logger.warning(f"Failed to set channel: {response}")
                     success = False
             
-            # Set UART parameters
-            if "baudRate" in params and "parity" in params:
-                response = self.send_command(f"AT+UART={params['baudRate']},{params['parity']}")
-                if not response.endswith("=OK"):
-                    logger.error(f"Failed to set UART parameters: {response}")
+            # UART settings
+            if "uart_baud" in params and "parity" in params:
+                cmd = f"AT+UART={params['uart_baud']},{params['parity']}"
+                response = self.send_at_command(cmd)
+                if not response or "OK" not in response:
+                    logger.warning(f"Failed to set UART parameters: {response}")
                     success = False
             
-            # Set air rate
-            if "airRate" in params:
-                response = self.send_command(f"AT+RATE={params['airRate']}")
-                if not response.endswith("=OK"):
-                    logger.error(f"Failed to set air rate: {response}")
+            # Air rate
+            if "air_data_rate" in params:
+                cmd = f"AT+RATE={params['air_data_rate']}"
+                response = self.send_at_command(cmd)
+                if not response or "OK" not in response:
+                    logger.warning(f"Failed to set air rate: {response}")
                     success = False
             
-            # Set packet size
-            if "packetSize" in params:
-                response = self.send_command(f"AT+PACKET={params['packetSize']}")
-                if not response.endswith("=OK"):
-                    logger.error(f"Failed to set packet size: {response}")
+            # Transmit power
+            if "transmission_power" in params:
+                cmd = f"AT+POWER={params['transmission_power']}"
+                response = self.send_at_command(cmd)
+                if not response or "OK" not in response:
+                    logger.warning(f"Failed to set transmission power: {response}")
                     success = False
             
-            # Set transmit power
-            if "transmitPower" in params:
-                response = self.send_command(f"AT+POWER={params['transmitPower']}")
-                if not response.endswith("=OK"):
-                    logger.error(f"Failed to set transmit power: {response}")
+            # Transmission mode
+            if "fixed_transmission" in params:
+                cmd = f"AT+TRANS={params['fixed_transmission']}"
+                response = self.send_at_command(cmd)
+                if not response or "OK" not in response:
+                    logger.warning(f"Failed to set transmission mode: {response}")
                     success = False
             
-            # Set WOR period
-            if "worPeriod" in params:
-                response = self.send_command(f"AT+WTIME={params['worPeriod']}")
-                if not response.endswith("=OK"):
-                    logger.error(f"Failed to set WOR period: {response}")
+            # WOR period
+            if "wake_up_time" in params:
+                cmd = f"AT+WTIME={params['wake_up_time']}"
+                response = self.send_at_command(cmd)
+                if not response or "OK" not in response:
+                    logger.warning(f"Failed to set WOR period: {response}")
                     success = False
-                    
-            # Set transmission mode
-            if "transMode" in params:
-                response = self.send_command(f"AT+TRANS={params['transMode']}")
-                if not response.endswith("=OK"):
-                    logger.error(f"Failed to set transmission mode: {response}")
+            
+            # Packet length
+            if "packet" in params:
+                cmd = f"AT+PACKET={params['packet']}"
+                response = self.send_at_command(cmd)
+                if not response or "OK" not in response:
+                    logger.warning(f"Failed to set packet length: {response}")
                     success = False
-                    
-            # Set LBT enable
-            if "lbtEnable" in params:
-                response = self.send_command(f"AT+LBT={params['lbtEnable']}")
-                if not response.endswith("=OK"):
-                    logger.error(f"Failed to set LBT enable: {response}")
+            
+            # Additional E220-specific parameters
+            
+            # LBT (Listen Before Talk)
+            if "lbt" in params:
+                cmd = f"AT+LBT={params['lbt']}"
+                response = self.send_at_command(cmd)
+                if not response or "OK" not in response:
+                    logger.warning(f"Failed to set LBT: {response}")
                     success = False
-                    
-            # Set ambient RSSI enable
-            if "rssiEnable" in params:
-                response = self.send_command(f"AT+ERSSI={params['rssiEnable']}")
-                if not response.endswith("=OK"):
-                    logger.error(f"Failed to set ambient RSSI enable: {response}")
+            
+            # RSSI Ambient Noise Enable
+            if "erssi" in params:
+                cmd = f"AT+ERSSI={params['erssi']}"
+                response = self.send_at_command(cmd)
+                if not response or "OK" not in response:
+                    logger.warning(f"Failed to set ERSSI: {response}")
                     success = False
-                    
-            # Set data RSSI enable
-            if "dataRssiEnable" in params:
-                response = self.send_command(f"AT+DRSSI={params['dataRssiEnable']}")
-                if not response.endswith("=OK"):
-                    logger.error(f"Failed to set data RSSI enable: {response}")
+            
+            # Receive data RSSI
+            if "drssi" in params:
+                cmd = f"AT+DRSSI={params['drssi']}"
+                response = self.send_at_command(cmd)
+                if not response or "OK" not in response:
+                    logger.warning(f"Failed to set DRSSI: {response}")
                     success = False
-                    
-            # Set key (if non-zero)
-            if "key" in params and params["key"] > 0:
-                response = self.send_command(f"AT+KEY={params['key']}")
-                if not response.endswith("=OK"):
-                    logger.error(f"Failed to set key: {response}")
+            
+            # Software switching mode
+            if "sw_switch" in params:
+                cmd = f"AT+SWITCH={params['sw_switch']}"
+                response = self.send_at_command(cmd)
+                if not response or "OK" not in response:
+                    logger.warning(f"Failed to set software switch mode: {response}")
                     success = False
-                    
-            # Set WOR delay
-            if "worDelay" in params:
-                response = self.send_command(f"AT+DELAY={params['worDelay']}")
-                if not response.endswith("=OK"):
-                    logger.error(f"Failed to set WOR delay: {response}")
-                    success = False
-                    
-            # Set software switching mode
-            if "switchMode" in params:
-                response = self.send_command(f"AT+SWITCH={params['switchMode']}")
-                if not response.endswith("=OK"):
-                    logger.error(f"Failed to set software switching mode: {response}")
-                    success = False
-                    
+            
         except Exception as e:
             logger.error(f"Error setting parameters: {e}")
             success = False
             
-        finally:
+        # Don't exit config mode if manual configuration is enabled
+        if not (hasattr(self, 'manual_config') and self.manual_config):
             self.exit_config_mode()
             
         return success
@@ -417,15 +525,24 @@ class E220Module:
             return False
             
         try:
-            response = self.send_command("AT+RESET")
-            if response.endswith("=OK"):
-                logger.info("Module reset successful")
+            # Send reset command
+            response = self.send_at_command("AT+RESET")
+            
+            # For reset, we expect an "OK" response
+            if response and "OK" in response:
+                # Wait a bit to allow the module to complete the reset
+                time.sleep(1)
+                logger.info("Module reset sent")
                 return True
             else:
-                logger.error(f"Module reset failed: {response}")
+                logger.error(f"Invalid response when resetting module: {response}")
                 return False
+        except Exception as e:
+            logger.error(f"Error resetting module: {e}")
+            return False
         finally:
-            self.exit_config_mode()
+            # Reset will automatically put the module back in normal mode
+            self.current_mode = None
     
     def factory_reset(self):
         """Reset the module to factory defaults"""
@@ -433,24 +550,54 @@ class E220Module:
             return False
             
         try:
-            response = self.send_command("AT+DEFAULT")
-            if response.endswith("=OK"):
+            # Send factory reset command
+            response = self.send_at_command("AT+DEFAULT")
+            
+            # For factory reset, we expect an "OK" response
+            if response and "OK" in response:
+                # Wait a bit to allow the module to complete the reset
+                time.sleep(1)
                 logger.info("Factory reset successful")
                 return True
             else:
-                logger.error(f"Factory reset failed: {response}")
+                logger.error(f"Invalid response when factory resetting module: {response}")
                 return False
+        except Exception as e:
+            logger.error(f"Error factory resetting module: {e}")
+            return False
         finally:
-            self.exit_config_mode()
+            # Factory reset will automatically put the module back in normal mode
+            self.current_mode = None
             
-    def send_custom_command(self, command):
-        """Send a custom AT command to the module"""
+    def version(self):
+        """Get module version"""
         if not self.enter_config_mode():
             return None
             
         try:
-            response = self.send_command(command)
-            return response
+            # Send version command
+            response = self.send_at_command("AT+DEVTYPE=?")
+            
+            if response and "=" in response:
+                # Extract device type
+                device_type = response.split("=")[1]
+                
+                # Get firmware version
+                fw_response = self.send_at_command("AT+FWCODE=?")
+                fw_version = fw_response.split("=")[1] if fw_response and "=" in fw_response else "Unknown"
+                
+                # Return version information
+                version_info = {
+                    "model": device_type,
+                    "version": fw_version,
+                }
+                return version_info
+            else:
+                logger.error("Invalid response when getting version")
+                return None
+        except Exception as e:
+            logger.error(f"Error getting version: {e}")
+            return None
         finally:
             self.exit_config_mode()
 
@@ -460,7 +607,7 @@ class E220ConfigGUI:
     """
     def __init__(self, master):
         self.master = master
-        self.master.title("E220 LoRa Module Configurator")
+        self.master.title("E220-915MHz LoRa Module Configurator")
         self.master.geometry("800x600")
         self.master.minsize(800, 600)
         
@@ -482,12 +629,12 @@ class E220ConfigGUI:
         self.connection_tab = ttk.Frame(self.notebook)
         self.basic_tab = ttk.Frame(self.notebook)
         self.advanced_tab = ttk.Frame(self.notebook)
-        self.command_tab = ttk.Frame(self.notebook)
+        self.monitor_tab = ttk.Frame(self.notebook)
         
         self.notebook.add(self.connection_tab, text="Connection")
         self.notebook.add(self.basic_tab, text="Basic Settings")
         self.notebook.add(self.advanced_tab, text="Advanced Settings")
-        self.notebook.add(self.command_tab, text="Command Console")
+        self.notebook.add(self.monitor_tab, text="Monitor")
         
         # Status bar
         self.status_var = tk.StringVar(value="Ready")
@@ -504,7 +651,7 @@ class E220ConfigGUI:
         self._setup_connection_tab()
         self._setup_basic_tab()
         self._setup_advanced_tab()
-        self._setup_command_tab()
+        self._setup_monitor_tab()
         
         # Disable tabs until connected
         self.notebook.tab(1, state="disabled")
@@ -519,23 +666,21 @@ class E220ConfigGUI:
         # Basic settings
         self.address_var = tk.IntVar(value=0)
         self.channel_var = tk.IntVar(value=0)
-        self.baudrate_idx_var = tk.IntVar(value=3)  # Default: 9600 bps
-        self.parity_var = tk.IntVar(value=0)        # Default: 8N1
-        self.airrate_var = tk.IntVar(value=2)       # Default: 2.4 kbps
-        self.power_var = tk.IntVar(value=0)         # Default: Max power
+        self.uart_baud_var = tk.IntVar(value=3)  # Default: 9600 bps
+        self.parity_var = tk.IntVar(value=0)     # Default: 8N1
+        self.air_rate_var = tk.IntVar(value=2)   # Default: 2.4 kbps
+        self.power_var = tk.IntVar(value=0)      # Default: Max power
         
         # Advanced settings
-        self.packet_size_var = tk.IntVar(value=0)   # Default: 200 bytes
-        self.trans_mode_var = tk.IntVar(value=0)    # Default: Transparent
-        self.wor_period_var = tk.IntVar(value=0)    # Default: 500ms
-        self.wor_role_var = tk.IntVar(value=0)      # Default: Receiver
-        self.net_id_var = tk.IntVar(value=0)        # Default: 0
-        self.key_var = tk.IntVar(value=0)           # Default: 0 (no encryption)
-        self.lbt_var = tk.IntVar(value=0)           # Default: Disabled
-        self.rssi_env_var = tk.IntVar(value=0)      # Default: Disabled
-        self.rssi_data_var = tk.IntVar(value=0)     # Default: Disabled
-        self.wor_delay_var = tk.IntVar(value=0)     # Default: 0ms
-        self.switch_mode_var = tk.IntVar(value=0)   # Default: Disabled
+        self.fixed_trans_var = tk.IntVar(value=0)  # Default: Transparent
+        self.wake_time_var = tk.IntVar(value=0)    # Default: 500ms
+        self.packet_var = tk.IntVar(value=0)       # Default: 200 bytes
+
+        # E220-specific settings
+        self.lbt_var = tk.IntVar(value=0)          # Default: Off
+        self.erssi_var = tk.IntVar(value=0)        # Default: Off
+        self.drssi_var = tk.IntVar(value=0)        # Default: Off
+        self.sw_switch_var = tk.IntVar(value=0)    # Default: Off
     
     def _setup_connection_tab(self):
         """Setup the connection tab"""
@@ -560,17 +705,20 @@ class E220ConfigGUI:
         self.connect_button.grid(row=2, column=0, columnspan=3, padx=5, pady=20)
         
         # Version and info
-        ttk.Label(conn_frame, text=f"E220 LoRa Module Configurator v{__version__}").grid(
+        ttk.Label(conn_frame, text=f"E220-915MHz LoRa Module Configurator v{__version__}").grid(
             row=3, column=0, columnspan=3, padx=5, pady=5
         )
         
         # Description
-        desc_text = """This application allows you to configure EBYTE E220 series LoRa modules.
+        desc_text = """This application allows you to configure EBYTE E220-915MHz series LoRa modules.
 Connect the module to your computer using a USB-to-serial adapter with the following wiring:
 
 - Connect module's M0 and M1 pins to your adapter if you need automatic mode switching
 - Make sure the module is powered with 3.3-5V DC
 - Default baud rate is 9600 bps
+
+For configuration mode, both M0 and M1 must be set HIGH.
+If you've already set M0=HIGH and M1=HIGH manually, check the option below.
         """
         desc_label = ttk.Label(conn_frame, text=desc_text, justify=tk.LEFT, wraplength=500)
         desc_label.grid(row=4, column=0, columnspan=3, padx=5, pady=10, sticky=tk.W)
@@ -579,13 +727,21 @@ Connect the module to your computer using a USB-to-serial adapter with the follo
         options_frame = ttk.LabelFrame(conn_frame, text="Additional Options")
         options_frame.grid(row=5, column=0, columnspan=3, padx=5, pady=10, sticky=tk.W+tk.E)
         
+        # Manual configuration mode option
+        self.manual_config_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            options_frame, 
+            text="I have manually set M0=HIGH, M1=HIGH for configuration mode",
+            variable=self.manual_config_var
+        ).grid(row=0, column=0, columnspan=2, sticky=tk.W, padx=5, pady=5)
+        
         # GPIO control options (for Raspberry Pi or similar)
         self.use_gpio_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(
             options_frame, 
             text="Use GPIO pins for mode control (Raspberry Pi)",
             variable=self.use_gpio_var
-        ).grid(row=0, column=0, columnspan=2, sticky=tk.W, padx=5, pady=5)
+        ).grid(row=1, column=0, columnspan=2, sticky=tk.W, padx=5, pady=5)
         
         # GPIO pin settings
         ttk.Label(options_frame, text="M0 GPIO Pin:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=2)
@@ -622,29 +778,29 @@ Connect the module to your computer using a USB-to-serial adapter with the follo
         ttk.Label(basic_frame, text="Unique identifier for the module").grid(row=0, column=2, sticky=tk.W, padx=5, pady=5)
         
         # Channel
-        ttk.Label(basic_frame, text="Channel (0-83):").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(basic_frame, text="Channel (0-80):").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
         ttk.Entry(basic_frame, textvariable=self.channel_var).grid(row=1, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
-        ttk.Label(basic_frame, text="Frequency = Base + Channel*1MHz").grid(row=1, column=2, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(basic_frame, text="Frequency = 850.125MHz + Channel*1MHz").grid(row=1, column=2, sticky=tk.W, padx=5, pady=5)
         
         # UART Baud Rate
         ttk.Label(basic_frame, text="UART Baud Rate:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
         baud_options = ["1200 bps", "2400 bps", "4800 bps", "9600 bps", "19200 bps", "38400 bps", "57600 bps", "115200 bps"]
-        ttk.Combobox(basic_frame, textvariable=self.baudrate_idx_var, values=list(range(len(baud_options))), 
+        ttk.Combobox(basic_frame, textvariable=self.uart_baud_var, values=list(range(len(baud_options))), 
                      state="readonly").grid(row=2, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
         ttk.Label(basic_frame, text=f"Serial port speed").grid(row=2, column=2, sticky=tk.W, padx=5, pady=5)
         
         # Create a function to update the displayed baud rate
         def update_baud_display(*args):
-            idx = self.baudrate_idx_var.get()
+            idx = self.uart_baud_var.get()
             if 0 <= idx < len(baud_options):
                 baud_label.config(text=f"Selected: {baud_options[idx]}")
         
         # Add a label to display the selected baud rate
-        baud_label = ttk.Label(basic_frame, text=f"Selected: {baud_options[self.baudrate_idx_var.get()]}")
+        baud_label = ttk.Label(basic_frame, text=f"Selected: {baud_options[self.uart_baud_var.get()]}")
         baud_label.grid(row=2, column=3, sticky=tk.W, padx=5, pady=5)
         
         # Bind the variable to the update function
-        self.baudrate_idx_var.trace_add("write", update_baud_display)
+        self.uart_baud_var.trace_add("write", update_baud_display)
         
         # Parity
         ttk.Label(basic_frame, text="Serial Parity:").grid(row=3, column=0, sticky=tk.W, padx=5, pady=5)
@@ -669,26 +825,26 @@ Connect the module to your computer using a USB-to-serial adapter with the follo
         # Air Rate
         ttk.Label(basic_frame, text="Air Rate:").grid(row=4, column=0, sticky=tk.W, padx=5, pady=5)
         airrate_options = ["2.4 kbps", "2.4 kbps", "2.4 kbps", "4.8 kbps", "9.6 kbps", "19.2 kbps", "38.4 kbps", "62.5 kbps"]
-        ttk.Combobox(basic_frame, textvariable=self.airrate_var, values=list(range(len(airrate_options))), 
+        ttk.Combobox(basic_frame, textvariable=self.air_rate_var, values=list(range(len(airrate_options))), 
                      state="readonly").grid(row=4, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
         ttk.Label(basic_frame, text="Wireless transmission rate").grid(row=4, column=2, sticky=tk.W, padx=5, pady=5)
         
         # Create a function to update the displayed air rate
         def update_airrate_display(*args):
-            idx = self.airrate_var.get()
+            idx = self.air_rate_var.get()
             if 0 <= idx < len(airrate_options):
                 airrate_label.config(text=f"Selected: {airrate_options[idx]}")
         
         # Add a label to display the selected air rate
-        airrate_label = ttk.Label(basic_frame, text=f"Selected: {airrate_options[self.airrate_var.get()]}")
+        airrate_label = ttk.Label(basic_frame, text=f"Selected: {airrate_options[self.air_rate_var.get()]}")
         airrate_label.grid(row=4, column=3, sticky=tk.W, padx=5, pady=5)
         
         # Bind the variable to the update function
-        self.airrate_var.trace_add("write", update_airrate_display)
+        self.air_rate_var.trace_add("write", update_airrate_display)
         
         # Transmit Power
         ttk.Label(basic_frame, text="Transmit Power:").grid(row=5, column=0, sticky=tk.W, padx=5, pady=5)
-        power_options = ["22/30 dBm (max)", "17/27 dBm", "13/24 dBm", "10/21 dBm"]
+        power_options = ["30 dBm (max)", "27 dBm", "24 dBm", "21 dBm"]
         ttk.Combobox(basic_frame, textvariable=self.power_var, values=list(range(len(power_options))), 
                      state="readonly").grid(row=5, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
         ttk.Label(basic_frame, text="RF transmission power").grid(row=5, column=2, sticky=tk.W, padx=5, pady=5)
@@ -706,9 +862,28 @@ Connect the module to your computer using a USB-to-serial adapter with the follo
         # Bind the variable to the update function
         self.power_var.trace_add("write", update_power_display)
         
+        # Frequency display
+        ttk.Label(basic_frame, text="Frequency:").grid(row=6, column=0, sticky=tk.W, padx=5, pady=5)
+        
+        # Create a function to update the displayed frequency based on channel
+        def update_frequency_display(*args):
+            channel = self.channel_var.get()
+            try:
+                frequency = 850.125 + channel
+                freq_label.config(text=f"{frequency} MHz")
+            except:
+                freq_label.config(text="Invalid channel")
+        
+        # Add a label to display the calculated frequency
+        freq_label = ttk.Label(basic_frame, text="850.125 MHz")
+        freq_label.grid(row=6, column=1, sticky=tk.W, padx=5, pady=5)
+        
+        # Bind the channel variable to the frequency update function
+        self.channel_var.trace_add("write", update_frequency_display)
+        
         # Buttons frame
         button_frame = ttk.Frame(basic_frame)
-        button_frame.grid(row=6, column=0, columnspan=4, pady=20)
+        button_frame.grid(row=7, column=0, columnspan=4, pady=20)
         
         # Read/Write buttons
         ttk.Button(button_frame, text="Read from Module", command=self._read_params).pack(side=tk.LEFT, padx=10)
@@ -722,265 +897,218 @@ Connect the module to your computer using a USB-to-serial adapter with the follo
         adv_frame = ttk.LabelFrame(self.advanced_tab, text="Advanced Configuration")
         adv_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
-        # Packet Size
-        ttk.Label(adv_frame, text="Packet Size:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
-        packet_options = ["200 bytes", "128 bytes", "64 bytes", "32 bytes"]
-        ttk.Combobox(adv_frame, textvariable=self.packet_size_var, values=list(range(len(packet_options))), 
-                     state="readonly").grid(row=0, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
-        ttk.Label(adv_frame, text="Maximum data packet size").grid(row=0, column=2, sticky=tk.W, padx=5, pady=5)
-        
-        # Create a function to update the displayed packet size
-        def update_packet_display(*args):
-            idx = self.packet_size_var.get()
-            if 0 <= idx < len(packet_options):
-                packet_label.config(text=f"Selected: {packet_options[idx]}")
-        
-        # Add a label to display the selected packet size
-        packet_label = ttk.Label(adv_frame, text=f"Selected: {packet_options[self.packet_size_var.get()]}")
-        packet_label.grid(row=0, column=3, sticky=tk.W, padx=5, pady=5)
-        
-        # Bind the variable to the update function
-        self.packet_size_var.trace_add("write", update_packet_display)
-        
-        # Transmission Mode
-        ttk.Label(adv_frame, text="Transmission Mode:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
+        # Fixed Transmission Mode
+        ttk.Label(adv_frame, text="Transmission Mode:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
         trans_options = ["Transparent Transmission", "Fixed Point Transmission"]
-        ttk.Combobox(adv_frame, textvariable=self.trans_mode_var, values=list(range(len(trans_options))), 
-                     state="readonly").grid(row=1, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
-        ttk.Label(adv_frame, text="Data transmission method").grid(row=1, column=2, sticky=tk.W, padx=5, pady=5)
+        ttk.Combobox(adv_frame, textvariable=self.fixed_trans_var, values=list(range(len(trans_options))), 
+                     state="readonly").grid(row=0, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
+        ttk.Label(adv_frame, text="Data transmission method").grid(row=0, column=2, sticky=tk.W, padx=5, pady=5)
         
         # Create a function to update the displayed transmission mode
         def update_trans_display(*args):
-            idx = self.trans_mode_var.get()
+            idx = self.fixed_trans_var.get()
             if 0 <= idx < len(trans_options):
                 trans_label.config(text=f"Selected: {trans_options[idx]}")
         
         # Add a label to display the selected transmission mode
-        trans_label = ttk.Label(adv_frame, text=f"Selected: {trans_options[self.trans_mode_var.get()]}")
-        trans_label.grid(row=1, column=3, sticky=tk.W, padx=5, pady=5)
+        trans_label = ttk.Label(adv_frame, text=f"Selected: {trans_options[self.fixed_trans_var.get()]}")
+        trans_label.grid(row=0, column=3, sticky=tk.W, padx=5, pady=5)
         
         # Bind the variable to the update function
-        self.trans_mode_var.trace_add("write", update_trans_display)
+        self.fixed_trans_var.trace_add("write", update_trans_display)
         
-        # WOR Period
-        ttk.Label(adv_frame, text="WOR Period:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
-        wor_options = ["500 ms", "1000 ms", "1500 ms", "2000 ms", "2500 ms", "3000 ms", "3500 ms", "4000 ms"]
-        ttk.Combobox(adv_frame, textvariable=self.wor_period_var, values=list(range(len(wor_options))), 
+        # Wake-up Time
+        ttk.Label(adv_frame, text="Wake-up Time:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
+        wake_options = ["500ms", "1000ms", "1500ms", "2000ms", "2500ms", "3000ms", "3500ms", "4000ms"]
+        ttk.Combobox(adv_frame, textvariable=self.wake_time_var, values=list(range(len(wake_options))), 
+                     state="readonly").grid(row=1, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
+        ttk.Label(adv_frame, text="Wireless wake-up interval").grid(row=1, column=2, sticky=tk.W, padx=5, pady=5)
+        
+        # Create a function to update the displayed wake-up time
+        def update_wake_display(*args):
+            idx = self.wake_time_var.get()
+            if 0 <= idx < len(wake_options):
+                wake_label.config(text=f"Selected: {wake_options[idx]}")
+        
+        # Add a label to display the selected wake-up time
+        wake_label = ttk.Label(adv_frame, text=f"Selected: {wake_options[self.wake_time_var.get()]}")
+        wake_label.grid(row=1, column=3, sticky=tk.W, padx=5, pady=5)
+        
+        # Bind the variable to the update function
+        self.wake_time_var.trace_add("write", update_wake_display)
+        
+        # Packet length
+        ttk.Label(adv_frame, text="Packet Length:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
+        packet_options = ["200 bytes", "128 bytes", "64 bytes", "32 bytes"]
+        ttk.Combobox(adv_frame, textvariable=self.packet_var, values=list(range(len(packet_options))), 
                      state="readonly").grid(row=2, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
-        ttk.Label(adv_frame, text="Wake-on-radio interval").grid(row=2, column=2, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(adv_frame, text="Maximum wireless packet size").grid(row=2, column=2, sticky=tk.W, padx=5, pady=5)
         
-        # Create a function to update the displayed WOR period
-        def update_wor_display(*args):
-            idx = self.wor_period_var.get()
-            if 0 <= idx < len(wor_options):
-                wor_label.config(text=f"Selected: {wor_options[idx]}")
+        # Create a function to update the displayed packet length
+        def update_packet_display(*args):
+            idx = self.packet_var.get()
+            if 0 <= idx < len(packet_options):
+                packet_label.config(text=f"Selected: {packet_options[idx]}")
         
-        # Add a label to display the selected WOR period
-        wor_label = ttk.Label(adv_frame, text=f"Selected: {wor_options[self.wor_period_var.get()]}")
-        wor_label.grid(row=2, column=3, sticky=tk.W, padx=5, pady=5)
-        
-        # Bind the variable to the update function
-        self.wor_period_var.trace_add("write", update_wor_display)
-        
-        # WOR Role
-        ttk.Label(adv_frame, text="WOR Role:").grid(row=3, column=0, sticky=tk.W, padx=5, pady=5)
-        wor_role_options = ["WOR Receiver", "WOR Transmitter"]
-        ttk.Combobox(adv_frame, textvariable=self.wor_role_var, values=list(range(len(wor_role_options))), 
-                     state="readonly").grid(row=3, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
-        ttk.Label(adv_frame, text="Wake-on-radio role").grid(row=3, column=2, sticky=tk.W, padx=5, pady=5)
-        
-        # Create a function to update the displayed WOR role
-        def update_wor_role_display(*args):
-            idx = self.wor_role_var.get()
-            if 0 <= idx < len(wor_role_options):
-                wor_role_label.config(text=f"Selected: {wor_role_options[idx]}")
-        
-        # Add a label to display the selected WOR role
-        wor_role_label = ttk.Label(adv_frame, text=f"Selected: {wor_role_options[self.wor_role_var.get()]}")
-        wor_role_label.grid(row=3, column=3, sticky=tk.W, padx=5, pady=5)
+        # Add a label to display the selected packet length
+        packet_label = ttk.Label(adv_frame, text=f"Selected: {packet_options[self.packet_var.get()]}")
+        packet_label.grid(row=2, column=3, sticky=tk.W, padx=5, pady=5)
         
         # Bind the variable to the update function
-        self.wor_role_var.trace_add("write", update_wor_role_display)
+        self.packet_var.trace_add("write", update_packet_display)
         
-        # Network ID
-        ttk.Label(adv_frame, text="Network ID (0-255):").grid(row=4, column=0, sticky=tk.W, padx=5, pady=5)
-        ttk.Entry(adv_frame, textvariable=self.net_id_var).grid(row=4, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
-        ttk.Label(adv_frame, text="Network identifier").grid(row=4, column=2, sticky=tk.W, padx=5, pady=5)
-        
-        # Encryption Key
-        ttk.Label(adv_frame, text="Encryption Key (0-65535):").grid(row=5, column=0, sticky=tk.W, padx=5, pady=5)
-        ttk.Entry(adv_frame, textvariable=self.key_var).grid(row=5, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
-        ttk.Label(adv_frame, text="Data encryption key (0 = disabled)").grid(row=5, column=2, sticky=tk.W, padx=5, pady=5)
-        
-        # LBT Enable
-        ttk.Label(adv_frame, text="Listen Before Talk:").grid(row=6, column=0, sticky=tk.W, padx=5, pady=5)
-        lbt_options = ["Disabled", "Enabled"]
+        # LBT (Listen Before Talk)
+        ttk.Label(adv_frame, text="Listen Before Talk:").grid(row=3, column=0, sticky=tk.W, padx=5, pady=5)
+        lbt_options = ["Off", "On"]
         ttk.Combobox(adv_frame, textvariable=self.lbt_var, values=list(range(len(lbt_options))), 
-                     state="readonly").grid(row=6, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
-        ttk.Label(adv_frame, text="Check channel before transmission").grid(row=6, column=2, sticky=tk.W, padx=5, pady=5)
+                     state="readonly").grid(row=3, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
+        ttk.Label(adv_frame, text="Check channel before transmitting").grid(row=3, column=2, sticky=tk.W, padx=5, pady=5)
         
-        # Create a function to update the displayed LBT setting
+        # Create a function to update the displayed LBT status
         def update_lbt_display(*args):
             idx = self.lbt_var.get()
             if 0 <= idx < len(lbt_options):
                 lbt_label.config(text=f"Selected: {lbt_options[idx]}")
         
-        # Add a label to display the selected LBT setting
+        # Add a label to display the selected LBT status
         lbt_label = ttk.Label(adv_frame, text=f"Selected: {lbt_options[self.lbt_var.get()]}")
-        lbt_label.grid(row=6, column=3, sticky=tk.W, padx=5, pady=5)
+        lbt_label.grid(row=3, column=3, sticky=tk.W, padx=5, pady=5)
         
         # Bind the variable to the update function
         self.lbt_var.trace_add("write", update_lbt_display)
         
         # RSSI Ambient Noise Enable
-        ttk.Label(adv_frame, text="RSSI Ambient Noise:").grid(row=7, column=0, sticky=tk.W, padx=5, pady=5)
-        rssi_env_options = ["Disabled", "Enabled"]
-        ttk.Combobox(adv_frame, textvariable=self.rssi_env_var, values=list(range(len(rssi_env_options))), 
-                     state="readonly").grid(row=7, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
-        ttk.Label(adv_frame, text="Enable ambient noise RSSI detection").grid(row=7, column=2, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(adv_frame, text="Ambient Noise RSSI:").grid(row=4, column=0, sticky=tk.W, padx=5, pady=5)
+        erssi_options = ["Off", "On"]
+        ttk.Combobox(adv_frame, textvariable=self.erssi_var, values=list(range(len(erssi_options))), 
+                     state="readonly").grid(row=4, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
+        ttk.Label(adv_frame, text="Enable ambient noise RSSI monitoring").grid(row=4, column=2, sticky=tk.W, padx=5, pady=5)
         
-        # Create a function to update the displayed RSSI env setting
-        def update_rssi_env_display(*args):
-            idx = self.rssi_env_var.get()
-            if 0 <= idx < len(rssi_env_options):
-                rssi_env_label.config(text=f"Selected: {rssi_env_options[idx]}")
+        # Create a function to update the displayed ERSSI status
+        def update_erssi_display(*args):
+            idx = self.erssi_var.get()
+            if 0 <= idx < len(erssi_options):
+                erssi_label.config(text=f"Selected: {erssi_options[idx]}")
         
-        # Add a label to display the selected RSSI env setting
-        rssi_env_label = ttk.Label(adv_frame, text=f"Selected: {rssi_env_options[self.rssi_env_var.get()]}")
-        rssi_env_label.grid(row=7, column=3, sticky=tk.W, padx=5, pady=5)
-        
-        # Bind the variable to the update function
-        self.rssi_env_var.trace_add("write", update_rssi_env_display)
-        
-        # RSSI Data Enable
-        ttk.Label(adv_frame, text="RSSI Data Output:").grid(row=8, column=0, sticky=tk.W, padx=5, pady=5)
-        rssi_data_options = ["Disabled", "Enabled"]
-        ttk.Combobox(adv_frame, textvariable=self.rssi_data_var, values=list(range(len(rssi_data_options))), 
-                     state="readonly").grid(row=8, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
-        ttk.Label(adv_frame, text="Append RSSI to received data").grid(row=8, column=2, sticky=tk.W, padx=5, pady=5)
-        
-        # Create a function to update the displayed RSSI data setting
-        def update_rssi_data_display(*args):
-            idx = self.rssi_data_var.get()
-            if 0 <= idx < len(rssi_data_options):
-                rssi_data_label.config(text=f"Selected: {rssi_data_options[idx]}")
-        
-        # Add a label to display the selected RSSI data setting
-        rssi_data_label = ttk.Label(adv_frame, text=f"Selected: {rssi_data_options[self.rssi_data_var.get()]}")
-        rssi_data_label.grid(row=8, column=3, sticky=tk.W, padx=5, pady=5)
+        # Add a label to display the selected ERSSI status
+        erssi_label = ttk.Label(adv_frame, text=f"Selected: {erssi_options[self.erssi_var.get()]}")
+        erssi_label.grid(row=4, column=3, sticky=tk.W, padx=5, pady=5)
         
         # Bind the variable to the update function
-        self.rssi_data_var.trace_add("write", update_rssi_data_display)
+        self.erssi_var.trace_add("write", update_erssi_display)
         
-        # WOR Delay
-        ttk.Label(adv_frame, text="WOR Delay Sleep Time (ms):").grid(row=9, column=0, sticky=tk.W, padx=5, pady=5)
-        ttk.Entry(adv_frame, textvariable=self.wor_delay_var).grid(row=9, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
-        ttk.Label(adv_frame, text="WOR delay before sleep (0-65535ms)").grid(row=9, column=2, sticky=tk.W, padx=5, pady=5)
+        # Data RSSI
+        ttk.Label(adv_frame, text="Data RSSI:").grid(row=5, column=0, sticky=tk.W, padx=5, pady=5)
+        drssi_options = ["Off", "On"]
+        ttk.Combobox(adv_frame, textvariable=self.drssi_var, values=list(range(len(drssi_options))), 
+                     state="readonly").grid(row=5, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
+        ttk.Label(adv_frame, text="Append RSSI byte to received data").grid(row=5, column=2, sticky=tk.W, padx=5, pady=5)
+        
+        # Create a function to update the displayed DRSSI status
+        def update_drssi_display(*args):
+            idx = self.drssi_var.get()
+            if 0 <= idx < len(drssi_options):
+                drssi_label.config(text=f"Selected: {drssi_options[idx]}")
+        
+        # Add a label to display the selected DRSSI status
+        drssi_label = ttk.Label(adv_frame, text=f"Selected: {drssi_options[self.drssi_var.get()]}")
+        drssi_label.grid(row=5, column=3, sticky=tk.W, padx=5, pady=5)
+        
+        # Bind the variable to the update function
+        self.drssi_var.trace_add("write", update_drssi_display)
         
         # Software Mode Switching
-        ttk.Label(adv_frame, text="Software Mode Switching:").grid(row=10, column=0, sticky=tk.W, padx=5, pady=5)
-        switch_options = ["Disabled", "Enabled"]
-        ttk.Combobox(adv_frame, textvariable=self.switch_mode_var, values=list(range(len(switch_options))), 
-                     state="readonly").grid(row=10, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
-        ttk.Label(adv_frame, text="Enable software mode switching").grid(row=10, column=2, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(adv_frame, text="Software Mode Switch:").grid(row=6, column=0, sticky=tk.W, padx=5, pady=5)
+        sw_switch_options = ["Off", "On"]
+        ttk.Combobox(adv_frame, textvariable=self.sw_switch_var, values=list(range(len(sw_switch_options))), 
+                     state="readonly").grid(row=6, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
+        ttk.Label(adv_frame, text="Enable software mode switching").grid(row=6, column=2, sticky=tk.W, padx=5, pady=5)
         
-        # Create a function to update the displayed switch mode setting
-        def update_switch_display(*args):
-            idx = self.switch_mode_var.get()
-            if 0 <= idx < len(switch_options):
-                switch_label.config(text=f"Selected: {switch_options[idx]}")
+        # Create a function to update the displayed software switch status
+        def update_sw_switch_display(*args):
+            idx = self.sw_switch_var.get()
+            if 0 <= idx < len(sw_switch_options):
+                sw_switch_label.config(text=f"Selected: {sw_switch_options[idx]}")
         
-        # Add a label to display the selected switch mode setting
-        switch_label = ttk.Label(adv_frame, text=f"Selected: {switch_options[self.switch_mode_var.get()]}")
-        switch_label.grid(row=10, column=3, sticky=tk.W, padx=5, pady=5)
+        # Add a label to display the selected software switch status
+        sw_switch_label = ttk.Label(adv_frame, text=f"Selected: {sw_switch_options[self.sw_switch_var.get()]}")
+        sw_switch_label.grid(row=6, column=3, sticky=tk.W, padx=5, pady=5)
         
         # Bind the variable to the update function
-        self.switch_mode_var.trace_add("write", update_switch_display)
+        self.sw_switch_var.trace_add("write", update_sw_switch_display)
+        
+        # Operating mode explanation
+        mode_frame = ttk.LabelFrame(adv_frame, text="Operating Modes")
+        mode_frame.grid(row=7, column=0, columnspan=4, sticky=tk.W+tk.E, padx=5, pady=10)
+        
+        mode_text = """
+The E220 module has 4 operating modes controlled by M0 and M1 pins:
+
+Mode 0 (M0=0, M1=0): Normal mode - UART and wireless channels are open for transparent transmission
+Mode 1 (M0=0, M1=1): WOR transmit mode - Sends data with wake-up code for WOR receivers
+Mode 2 (M0=1, M1=0): WOR receive mode - Listens periodically to save power
+Mode 3 (M0=1, M1=1): Sleep/configuration mode - For settings configuration via AT commands
+
+Note: These modes cannot be changed from this software unless you use GPIO control or enable software mode switching.
+        """
+        
+        mode_label = ttk.Label(mode_frame, text=mode_text, justify=tk.LEFT, wraplength=700)
+        mode_label.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
         # Buttons frame
         button_frame = ttk.Frame(adv_frame)
-        button_frame.grid(row=11, column=0, columnspan=4, pady=20)
+        button_frame.grid(row=8, column=0, columnspan=4, pady=20)
         
         # Read/Write buttons (same functionality as basic tab)
         ttk.Button(button_frame, text="Read from Module", command=self._read_params).pack(side=tk.LEFT, padx=10)
         ttk.Button(button_frame, text="Write to Module", command=self._write_params).pack(side=tk.LEFT, padx=10)
     
-    def _setup_command_tab(self):
-        """Setup the command console tab"""
-        # Create a frame for the command console
-        cmd_frame = ttk.LabelFrame(self.command_tab, text="AT Command Console")
-        cmd_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+    def _setup_monitor_tab(self):
+        """Setup the monitor tab for seeing module status and testing"""
+        # Create a frame for the monitor
+        monitor_frame = ttk.LabelFrame(self.monitor_tab, text="Module Monitor")
+        monitor_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
-        # Command entry
-        ttk.Label(cmd_frame, text="Enter AT Command:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
-        self.cmd_entry = ttk.Entry(cmd_frame, width=40)
-        self.cmd_entry.grid(row=0, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
-        ttk.Button(cmd_frame, text="Send", command=self._send_command).grid(row=0, column=2, padx=5, pady=5)
+        # Version info
+        ttk.Label(monitor_frame, text="Module Information:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
+        self.version_var = tk.StringVar(value="Not available")
+        ttk.Label(monitor_frame, textvariable=self.version_var).grid(row=0, column=1, sticky=tk.W, padx=5, pady=5)
+        ttk.Button(monitor_frame, text="Get Version", command=self._get_version).grid(row=0, column=2, padx=5, pady=5)
         
-        # Response display
-        ttk.Label(cmd_frame, text="Response:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
-        self.response_text = scrolledtext.ScrolledText(cmd_frame, height=10, width=50)
-        self.response_text.grid(row=2, column=0, columnspan=3, sticky=tk.W+tk.E+tk.N+tk.S, padx=5, pady=5)
+        # Current parameters display
+        param_frame = ttk.LabelFrame(monitor_frame, text="Current Parameters")
+        param_frame.grid(row=1, column=0, columnspan=3, sticky=tk.W+tk.E+tk.N+tk.S, padx=5, pady=10)
         
-        # Common commands frame
-        common_frame = ttk.LabelFrame(cmd_frame, text="Common Commands")
-        common_frame.grid(row=3, column=0, columnspan=3, sticky=tk.W+tk.E, padx=5, pady=10)
+        self.param_text = scrolledtext.ScrolledText(param_frame, height=10, width=60)
+        self.param_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
-        # Common commands
-        common_commands = {
-            "Get Version": "AT+HELP=?",
-            "Get Address": "AT+ADDR=?",
-            "Get Channel": "AT+CHANNEL=?",
-            "Get UART": "AT+UART=?",
-            "Get Air Rate": "AT+RATE=?",
-            "Reset Module": "AT+RESET",
-            "Factory Reset": "AT+DEFAULT"
-        }
+        # Add a button to refresh parameters
+        ttk.Button(param_frame, text="Refresh Parameters", command=self._refresh_params_display).pack(pady=5)
         
-        # Create buttons for common commands
-        row, col = 0, 0
-        for label, cmd in common_commands.items():
-            ttk.Button(
-                common_frame, 
-                text=label, 
-                command=lambda c=cmd: self._send_predefined_command(c)
-            ).grid(row=row, column=col, padx=5, pady=5, sticky=tk.W)
-            col += 1
-            if col > 2:
-                col = 0
-                row += 1
+        # Test transmission frame
+        test_frame = ttk.LabelFrame(monitor_frame, text="Test Transmission")
+        test_frame.grid(row=2, column=0, columnspan=3, sticky=tk.W+tk.E+tk.N+tk.S, padx=5, pady=10)
         
-        # Command history
-        history_frame = ttk.LabelFrame(cmd_frame, text="Command History")
-        history_frame.grid(row=4, column=0, columnspan=3, sticky=tk.W+tk.E+tk.N+tk.S, padx=5, pady=10)
+        # Data to send
+        ttk.Label(test_frame, text="Data to send:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
+        self.test_data_var = tk.StringVar(value="Hello LoRa!")
+        ttk.Entry(test_frame, textvariable=self.test_data_var, width=40).grid(row=0, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
         
-        self.history_text = scrolledtext.ScrolledText(history_frame, height=6, width=50)
-        self.history_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        # Send button
+        ttk.Button(test_frame, text="Send Data", command=self._send_test_data).grid(row=0, column=2, padx=5, pady=5)
         
-        # Help text
-        help_frame = ttk.LabelFrame(cmd_frame, text="AT Command Help")
-        help_frame.grid(row=5, column=0, columnspan=3, sticky=tk.W+tk.E, padx=5, pady=10)
+        # Received data
+        ttk.Label(test_frame, text="Received Data:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
+        self.received_text = scrolledtext.ScrolledText(test_frame, height=5, width=60)
+        self.received_text.grid(row=2, column=0, columnspan=3, sticky=tk.W+tk.E, padx=5, pady=5)
         
-        help_text = """
-Common AT Commands for E220 Modules:
-
-- AT+HELP=?                    - Show all commands
-- AT+ADDR=?                    - Query module address
-- AT+ADDR=<value>              - Set module address (0-65535)
-- AT+CHANNEL=?                 - Query channel
-- AT+CHANNEL=<value>           - Set channel (0-83)
-- AT+UART=?                    - Query UART parameters
-- AT+UART=<baudrate>,<parity>  - Set UART parameters
-- AT+RATE=?                    - Query air rate
-- AT+RATE=<value>              - Set air rate (0-7)
-- AT+POWER=?                   - Query transmit power
-- AT+POWER=<value>             - Set transmit power (0-3)
-- AT+RESET                     - Reset the module
-- AT+DEFAULT                   - Restore factory settings
-        """
+        # Clear button
+        ttk.Button(test_frame, text="Clear Received", command=lambda: self.received_text.delete(1.0, tk.END)).grid(row=3, column=0, columnspan=3, pady=5)
         
-        help_label = ttk.Label(help_frame, text=help_text, justify=tk.LEFT)
-        help_label.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        # Start/stop receiving
+        self.receiving_var = tk.BooleanVar(value=False)
+        self.receive_button = ttk.Button(test_frame, text="Start Receiving", command=self._toggle_receiving)
+        self.receive_button.grid(row=4, column=0, columnspan=3, pady=5)
     
     def _refresh_ports(self):
         """Refresh the list of available serial ports"""
@@ -1017,9 +1145,25 @@ Common AT Commands for E220 Modules:
                 
             # Initialize module
             use_gpio = self.use_gpio_var.get()
+            manual_config = self.manual_config_var.get()
             m0_pin = self.m0_pin_var.get() if use_gpio else None
             m1_pin = self.m1_pin_var.get() if use_gpio else None
             aux_pin = self.aux_pin_var.get() if use_gpio else None
+            
+            # Display a reminder for manual configuration mode if needed
+            if not use_gpio and manual_config:
+                self.status_var.set("Using manual configuration mode (M0=HIGH, M1=HIGH)")
+            elif not use_gpio and not manual_config:
+                result = messagebox.askquestion("Configuration Mode Reminder", 
+                    "You have not selected GPIO control or manual configuration mode.\n\n" +
+                    "Have you set M0=HIGH and M1=HIGH manually for configuration mode?",
+                    icon='warning')
+                if result != 'yes':
+                    messagebox.showinfo("Configuration Required", 
+                        "Please set M0=HIGH and M1=HIGH manually before connecting.")
+                    return
+                # User confirmed they set pins manually, so set the flag
+                manual_config = True
             
             self.module = E220Module(
                 port=port,
@@ -1028,7 +1172,8 @@ Common AT Commands for E220 Modules:
                 m0_pin=m0_pin,
                 m1_pin=m1_pin,
                 aux_pin=aux_pin,
-                use_gpio=use_gpio
+                use_gpio=use_gpio,
+                manual_config=manual_config
             )
             
             if self.module.connect():
@@ -1060,25 +1205,23 @@ Common AT Commands for E220 Modules:
         if params:
             # Update UI with retrieved parameters
             self.address_var.set(params.get("address", 0))
-            self.channel_var.set(params.get("channel", 0))
-            self.baudrate_idx_var.set(params.get("baudRate", 3))
+            self.channel_var.set(params.get("chan", 0))
+            self.uart_baud_var.set(params.get("uart_baud", 3))
             self.parity_var.set(params.get("parity", 0))
-            self.airrate_var.set(params.get("airRate", 2))
-            self.power_var.set(params.get("transmitPower", 0))
-            self.packet_size_var.set(params.get("packetSize", 0))
-            self.trans_mode_var.set(params.get("transMode", 0))
-            self.wor_period_var.set(params.get("worPeriod", 0))
-            self.wor_role_var.set(params.get("worRole", 0))
-            self.net_id_var.set(params.get("netID", 0))
-            self.key_var.set(params.get("key", 0))
-            self.lbt_var.set(params.get("lbtEnable", 0))
-            self.rssi_env_var.set(params.get("rssiEnable", 0))
-            self.rssi_data_var.set(params.get("dataRssiEnable", 0))
-            self.wor_delay_var.set(params.get("worDelay", 0))
-            self.switch_mode_var.set(params.get("switchMode", 0))
+            self.air_rate_var.set(params.get("air_data_rate", 2))
+            self.power_var.set(params.get("transmission_power", 0))
+            self.fixed_trans_var.set(params.get("fixed_transmission", 0))
+            self.wake_time_var.set(params.get("wake_up_time", 0))
+            self.packet_var.set(params.get("packet", 0))
+            
+            # E220-specific parameters
+            self.lbt_var.set(params.get("lbt", 0))
+            self.erssi_var.set(params.get("erssi", 0))
+            self.drssi_var.set(params.get("drssi", 0))
+            self.sw_switch_var.set(params.get("sw_switch", 0))
             
             self.status_var.set("Parameters read successfully")
-            self._add_to_history("Read parameters from module")
+            self._refresh_params_display()
         else:
             self.status_var.set("Failed to read parameters")
             messagebox.showerror("Error", "Failed to read parameters from module")
@@ -1096,20 +1239,8 @@ Common AT Commands for E220 Modules:
                 raise ValueError("Address must be between 0 and 65535")
                 
             channel = int(self.channel_var.get())
-            if not 0 <= channel <= 83:
-                raise ValueError("Channel must be between 0 and 83")
-                
-            net_id = int(self.net_id_var.get())
-            if not 0 <= net_id <= 255:
-                raise ValueError("Network ID must be between 0 and 255")
-                
-            key = int(self.key_var.get())
-            if not 0 <= key <= 65535:
-                raise ValueError("Encryption key must be between 0 and 65535")
-                
-            wor_delay = int(self.wor_delay_var.get())
-            if not 0 <= wor_delay <= 65535:
-                raise ValueError("WOR delay must be between 0 and 65535")
+            if not 0 <= channel <= 80:
+                raise ValueError("Channel must be between 0 and 80")
                 
         except ValueError as e:
             messagebox.showerror("Parameter Error", str(e))
@@ -1117,31 +1248,28 @@ Common AT Commands for E220 Modules:
             
         # Collect parameters
         params = {
-            "address": self.address_var.get(),
-            "channel": self.channel_var.get(),
-            "baudRate": self.baudrate_idx_var.get(),
+            "address": address,
+            "chan": self.channel_var.get(),
+            "uart_baud": self.uart_baud_var.get(),
             "parity": self.parity_var.get(),
-            "airRate": self.airrate_var.get(),
-            "transmitPower": self.power_var.get(),
-            "packetSize": self.packet_size_var.get(),
-            "transMode": self.trans_mode_var.get(),
-            "worPeriod": self.wor_period_var.get(),
-            "worRole": self.wor_role_var.get(),
-            "netID": self.net_id_var.get(),
-            "key": self.key_var.get(),
-            "lbtEnable": self.lbt_var.get(),
-            "rssiEnable": self.rssi_env_var.get(),
-            "dataRssiEnable": self.rssi_data_var.get(),
-            "worDelay": self.wor_delay_var.get(),
-            "switchMode": self.switch_mode_var.get()
+            "air_data_rate": self.air_rate_var.get(),
+            "transmission_power": self.power_var.get(),
+            "fixed_transmission": self.fixed_trans_var.get(),
+            "wake_up_time": self.wake_time_var.get(),
+            "packet": self.packet_var.get(),
+            # E220-specific parameters
+            "lbt": self.lbt_var.get(),
+            "erssi": self.erssi_var.get(),
+            "drssi": self.drssi_var.get(),
+            "sw_switch": self.sw_switch_var.get()
         }
         
-        # Ask for confirmation if baudrate is changing
-        if params["baudRate"] != 3:  # Default baud rate index (9600 bps)
+        # Ask for confirmation if baudrate is changing from the default 9600
+        if params["uart_baud"] != 3:  # Default baud rate index (9600 bps)
             baud_options = [1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200]
             if not messagebox.askyesno(
                 "Confirm Baud Rate Change", 
-                f"You are changing the module's baud rate to {baud_options[params['baudRate']]} bps.\n\n"
+                f"You are changing the module's baud rate to {baud_options[params['uart_baud']]} bps.\n\n"
                 "If you continue, you may need to disconnect and reconnect at the new baud rate.\n\n"
                 "Are you sure you want to continue?"
             ):
@@ -1154,14 +1282,15 @@ Common AT Commands for E220 Modules:
             self.status_var.set("Parameters written successfully")
             
             # If baudrate changed, notify the user to reconnect
-            if params["baudRate"] != 3:  # Default baud rate index (9600 bps)
+            if params["uart_baud"] != 3:  # Default baud rate index (9600 bps)
                 messagebox.showinfo(
                     "Baud Rate Changed",
-                    f"The module's baud rate has been changed to {baud_options[params['baudRate']]} bps.\n\n"
+                    f"The module's baud rate has been changed to {baud_options[params['uart_baud']]} bps.\n\n"
                     "Please disconnect and reconnect at the new baud rate."
                 )
                 
-            self._add_to_history("Wrote parameters to module")
+            # Update the parameter display
+            self._refresh_params_display()
         else:
             self.status_var.set("Failed to write parameters")
             messagebox.showerror("Error", "Failed to write parameters to module")
@@ -1178,7 +1307,9 @@ Common AT Commands for E220 Modules:
             
             if self.module.reset_module():
                 self.status_var.set("Module reset successfully")
-                self._add_to_history("Reset module")
+                
+                # Re-read parameters after reset
+                self._read_params()
             else:
                 self.status_var.set("Failed to reset module")
                 messagebox.showerror("Error", "Failed to reset module")
@@ -1199,7 +1330,6 @@ Common AT Commands for E220 Modules:
             
             if self.module.factory_reset():
                 self.status_var.set("Factory reset successful")
-                self._add_to_history("Factory reset module")
                 
                 # Re-read parameters after factory reset
                 self._read_params()
@@ -1207,43 +1337,171 @@ Common AT Commands for E220 Modules:
                 self.status_var.set("Failed to perform factory reset")
                 messagebox.showerror("Error", "Failed to perform factory reset")
     
-    def _send_command(self):
-        """Send a custom AT command"""
+    def _get_version(self):
+        """Get module version information"""
         if not self.module:
             messagebox.showerror("Error", "Not connected to module")
             return
             
-        command = self.cmd_entry.get().strip()
-        if not command:
-            return
-            
-        self.status_var.set(f"Sending command: {command}")
+        self.status_var.set("Getting module version...")
         self.master.update()
         
-        response = self.module.send_custom_command(command)
+        version_info = self.module.version()
         
-        if response is not None:
-            self.response_text.delete(1.0, tk.END)
-            self.response_text.insert(tk.END, response)
-            self.status_var.set(f"Command sent: {command}")
-            self._add_to_history(f"Sent: {command} -> Received: {response}")
+        if version_info:
+            version_str = f"Model: {version_info['model']}, Firmware: {version_info['version']}"
+            self.version_var.set(version_str)
+            self.status_var.set("Version read successfully")
         else:
-            self.response_text.delete(1.0, tk.END)
-            self.response_text.insert(tk.END, "Error: No response or communication error")
-            self.status_var.set("Command failed")
+            self.status_var.set("Failed to read version")
+            messagebox.showerror("Error", "Failed to read module version")
     
-    def _send_predefined_command(self, command):
-        """Send a predefined AT command"""
-        if command:
-            self.cmd_entry.delete(0, tk.END)
-            self.cmd_entry.insert(0, command)
-            self._send_command()
+    def _refresh_params_display(self):
+        """Refresh the parameters display in the monitor tab"""
+        if not self.module:
+            self.param_text.delete(1.0, tk.END)
+            self.param_text.insert(tk.END, "Not connected to module")
+            return
+            
+        params = self.module.get_parameters()
+        
+        if not params:
+            self.param_text.delete(1.0, tk.END)
+            self.param_text.insert(tk.END, "Failed to read parameters")
+            return
+            
+        # Format display text
+        self.param_text.delete(1.0, tk.END)
+        
+        # Lists for lookup of human-readable values
+        baud_rates = ["1200", "2400", "4800", "9600", "19200", "38400", "57600", "115200"]
+        parity_options = ["8N1", "8O1", "8E1", "8N1 (same as 0)"]
+        air_rates = ["2.4k", "2.4k", "2.4k", "4.8k", "9.6k", "19.2k", "38.4k", "62.5k"]
+        power_options = ["30 dBm", "27 dBm", "24 dBm", "21 dBm"]
+        wake_options = ["500ms", "1000ms", "1500ms", "2000ms", "2500ms", "3000ms", "3500ms", "4000ms"]
+        packet_options = ["200 bytes", "128 bytes", "64 bytes", "32 bytes"]
+        
+        # Format and display parameters
+        self.param_text.insert(tk.END, f"Address: {params['address']} (0x{params['address']:04X})\n")
+        self.param_text.insert(tk.END, f"Channel: {params['chan']} (Frequency: {850.125 + params['chan']} MHz)\n")
+        
+        uart_baud = params['uart_baud']
+        if 0 <= uart_baud < len(baud_rates):
+            self.param_text.insert(tk.END, f"UART Baud Rate: {baud_rates[uart_baud]} bps\n")
+        
+        parity = params['parity']
+        if 0 <= parity < len(parity_options):
+            self.param_text.insert(tk.END, f"UART Parity: {parity_options[parity]}\n")
+        
+        air_rate = params['air_data_rate']
+        if 0 <= air_rate < len(air_rates):
+            self.param_text.insert(tk.END, f"Air Data Rate: {air_rates[air_rate]}\n")
+        
+        power = params['transmission_power']
+        if 0 <= power < len(power_options):
+            self.param_text.insert(tk.END, f"Transmission Power: {power_options[power]}\n")
+        
+        self.param_text.insert(tk.END, f"Fixed Transmission: {'Enabled' if params['fixed_transmission'] else 'Disabled'}\n")
+        
+        wake_time = params['wake_up_time']
+        if 0 <= wake_time < len(wake_options):
+            self.param_text.insert(tk.END, f"Wake-up Time: {wake_options[wake_time]}\n")
+        
+        packet = params.get('packet', 0)
+        if 0 <= packet < len(packet_options):
+            self.param_text.insert(tk.END, f"Packet Length: {packet_options[packet]}\n")
+        
+        # E220-specific parameters
+        self.param_text.insert(tk.END, f"Listen Before Talk (LBT): {'Enabled' if params.get('lbt', 0) else 'Disabled'}\n")
+        self.param_text.insert(tk.END, f"Ambient Noise RSSI: {'Enabled' if params.get('erssi', 0) else 'Disabled'}\n")
+        self.param_text.insert(tk.END, f"Data RSSI: {'Enabled' if params.get('drssi', 0) else 'Disabled'}\n")
+        self.param_text.insert(tk.END, f"Software Mode Switching: {'Enabled' if params.get('sw_switch', 0) else 'Disabled'}\n")
     
-    def _add_to_history(self, text):
-        """Add entry to command history"""
-        timestamp = time.strftime("%H:%M:%S")
-        self.history_text.insert(tk.END, f"[{timestamp}] {text}\n")
-        self.history_text.see(tk.END)
+    def _send_test_data(self):
+        """Send test data through the module"""
+        if not self.module or not self.module.serial or not self.module.serial.is_open:
+            messagebox.showerror("Error", "Not connected to module")
+            return
+            
+        data = self.test_data_var.get()
+        if not data:
+            return
+            
+        try:
+            # Switch to normal mode for transmission
+            if self.module.set_mode(ModuleMode.NORMAL):
+                # Send the data
+                self.module.serial.write(data.encode('utf-8'))
+                self.status_var.set(f"Data sent: {data}")
+            else:
+                self.status_var.set("Failed to set module to normal mode")
+                messagebox.showerror("Error", "Failed to set module to normal mode for transmission")
+        except Exception as e:
+            self.status_var.set(f"Error sending data: {str(e)}")
+            messagebox.showerror("Error", f"Failed to send data: {str(e)}")
+    
+    def _toggle_receiving(self):
+        """Toggle receiving mode"""
+        if not self.module or not self.module.serial or not self.module.serial.is_open:
+            messagebox.showerror("Error", "Not connected to module")
+            return
+            
+        if self.receiving_var.get():
+            # Stop receiving
+            self.receiving_var.set(False)
+            self.receive_button.config(text="Start Receiving")
+            self.status_var.set("Stopped receiving")
+        else:
+            # Start receiving
+            self.receiving_var.set(True)
+            self.receive_button.config(text="Stop Receiving")
+            self.status_var.set("Started receiving")
+            
+            # Start receive thread
+            threading.Thread(target=self._receive_data, daemon=True).start()
+    
+    def _receive_data(self):
+        """Receive data in a separate thread"""
+        # Switch to normal mode for reception
+        if not self.module.set_mode(ModuleMode.NORMAL):
+            self.status_var.set("Failed to set module to normal mode")
+            messagebox.showerror("Error", "Failed to set module to normal mode for reception")
+            self.receiving_var.set(False)
+            self.receive_button.config(text="Start Receiving")
+            return
+            
+        self.module.serial.reset_input_buffer()
+        
+        while self.receiving_var.get():
+            try:
+                if self.module.serial.in_waiting:
+                    data = self.module.serial.read(self.module.serial.in_waiting)
+                    if data:
+                        # Try to decode as UTF-8, fall back to hex if not possible
+                        try:
+                            decoded = data.decode('utf-8')
+                        except UnicodeDecodeError:
+                            decoded = f"HEX: {data.hex()}"
+                            
+                        # Add timestamp
+                        timestamp = time.strftime("%H:%M:%S")
+                        
+                        # Update the text widget in thread-safe way
+                        self.master.after(0, self._update_received_text, f"[{timestamp}] {decoded}\n")
+            except Exception as e:
+                self.master.after(0, self._update_status, f"Error receiving data: {str(e)}")
+                break
+                
+            time.sleep(0.1)
+    
+    def _update_received_text(self, text):
+        """Update received text in a thread-safe way"""
+        self.received_text.insert(tk.END, text)
+        self.received_text.see(tk.END)
+    
+    def _update_status(self, text):
+        """Update status bar in a thread-safe way"""
+        self.status_var.set(text)
     
     def _load_config(self):
         """Load configuration from file"""
@@ -1260,24 +1518,46 @@ Common AT Commands for E220 Modules:
                 config = json.load(f)
                 
             # Update UI with loaded parameters
-            self.address_var.set(config.get("address", 0))
-            self.channel_var.set(config.get("channel", 0))
-            self.baudrate_idx_var.set(config.get("baudRate", 3))
-            self.parity_var.set(config.get("parity", 0))
-            self.airrate_var.set(config.get("airRate", 2))
-            self.power_var.set(config.get("transmitPower", 0))
-            self.packet_size_var.set(config.get("packetSize", 0))
-            self.trans_mode_var.set(config.get("transMode", 0))
-            self.wor_period_var.set(config.get("worPeriod", 0))
-            self.wor_role_var.set(config.get("worRole", 0))
-            self.net_id_var.set(config.get("netID", 0))
-            self.key_var.set(config.get("key", 0))
-            self.lbt_var.set(config.get("lbtEnable", 0))
-            self.rssi_env_var.set(config.get("rssiEnable", 0))
-            self.rssi_data_var.set(config.get("dataRssiEnable", 0))
-            self.wor_delay_var.set(config.get("worDelay", 0))
-            self.switch_mode_var.set(config.get("switchMode", 0))
+            if "address" in config:
+                self.address_var.set(config["address"])
             
+            if "chan" in config:
+                self.channel_var.set(config["chan"])
+            
+            if "uart_baud" in config:
+                self.uart_baud_var.set(config["uart_baud"])
+            
+            if "parity" in config:
+                self.parity_var.set(config["parity"])
+            
+            if "air_data_rate" in config:
+                self.air_rate_var.set(config["air_data_rate"])
+            
+            if "transmission_power" in config:
+                self.power_var.set(config["transmission_power"])
+            
+            if "fixed_transmission" in config:
+                self.fixed_trans_var.set(config["fixed_transmission"])
+            
+            if "wake_up_time" in config:
+                self.wake_time_var.set(config["wake_up_time"])
+            
+            if "packet" in config:
+                self.packet_var.set(config["packet"])
+            
+            # E220-specific parameters
+            if "lbt" in config:
+                self.lbt_var.set(config["lbt"])
+            
+            if "erssi" in config:
+                self.erssi_var.set(config["erssi"])
+            
+            if "drssi" in config:
+                self.drssi_var.set(config["drssi"])
+            
+            if "sw_switch" in config:
+                self.sw_switch_var.set(config["sw_switch"])
+                
             self.status_var.set(f"Configuration loaded from {os.path.basename(filename)}")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load configuration: {e}")
@@ -1296,22 +1576,19 @@ Common AT Commands for E220 Modules:
         try:
             config = {
                 "address": self.address_var.get(),
-                "channel": self.channel_var.get(),
-                "baudRate": self.baudrate_idx_var.get(),
+                "chan": self.channel_var.get(),
+                "uart_baud": self.uart_baud_var.get(),
                 "parity": self.parity_var.get(),
-                "airRate": self.airrate_var.get(),
-                "transmitPower": self.power_var.get(),
-                "packetSize": self.packet_size_var.get(),
-                "transMode": self.trans_mode_var.get(),
-                "worPeriod": self.wor_period_var.get(),
-                "worRole": self.wor_role_var.get(),
-                "netID": self.net_id_var.get(),
-                "key": self.key_var.get(),
-                "lbtEnable": self.lbt_var.get(),
-                "rssiEnable": self.rssi_env_var.get(),
-                "dataRssiEnable": self.rssi_data_var.get(),
-                "worDelay": self.wor_delay_var.get(),
-                "switchMode": self.switch_mode_var.get()
+                "air_data_rate": self.air_rate_var.get(),
+                "transmission_power": self.power_var.get(),
+                "fixed_transmission": self.fixed_trans_var.get(),
+                "wake_up_time": self.wake_time_var.get(),
+                "packet": self.packet_var.get(),
+                # E220-specific parameters
+                "lbt": self.lbt_var.get(),
+                "erssi": self.erssi_var.get(),
+                "drssi": self.drssi_var.get(),
+                "sw_switch": self.sw_switch_var.get()
             }
             
             with open(filename, 'w') as f:
@@ -1365,14 +1642,16 @@ class E220CLI:
                 self._reset_module()
             elif self.args.command == 'factory-reset':
                 self._factory_reset()
-            elif self.args.command == 'send-command':
-                self._send_command()
+            elif self.args.command == 'version':
+                self._get_version()
             elif self.args.command == 'save-config':
                 self._save_config()
             elif self.args.command == 'load-config':
                 self._load_config()
             elif self.args.command == 'scan-ports':
                 self._scan_ports()
+            elif self.args.command == 'send-data':
+                self._send_data()
             else:
                 logger.error(f"Unknown command: {self.args.command}")
                 return 1
@@ -1394,47 +1673,39 @@ class E220CLI:
             baud_rates = ["1200", "2400", "4800", "9600", "19200", "38400", "57600", "115200"]
             parity_options = ["8N1", "8O1", "8E1", "8N1 (same as 0)"]
             air_rates = ["2.4k", "2.4k", "2.4k", "4.8k", "9.6k", "19.2k", "38.4k", "62.5k"]
-            power_options = ["22/30 dBm", "17/27 dBm", "13/24 dBm", "10/21 dBm"]
+            power_options = ["30 dBm", "27 dBm", "24 dBm", "21 dBm"]
+            wake_options = ["500ms", "1000ms", "1500ms", "2000ms", "2500ms", "3000ms", "3500ms", "4000ms"]
             packet_options = ["200 bytes", "128 bytes", "64 bytes", "32 bytes"]
-            trans_options = ["Transparent", "Fixed Point"]
-            wor_options = ["500ms", "1000ms", "1500ms", "2000ms", "2500ms", "3000ms", "3500ms", "4000ms"]
-            wor_role_options = ["Receiver", "Transmitter"]
             
             # Print formatted parameters
-            print(f"Address:                {params['address']}")
-            print(f"Channel:                {params['channel']} ({params['channel'] + 410}MHz for 433 band, {params['channel'] + 850}MHz for 868 band)")
+            print(f"Address:               {params['address']} (0x{params['address']:04X})")
+            print(f"Channel:               {params['chan']} ({850.125 + params['chan']}MHz)")
             
-            if 0 <= params['baudRate'] < len(baud_rates):
-                print(f"UART Baud Rate:         {baud_rates[params['baudRate']]} bps")
+            if 'uart_baud' in params and 0 <= params['uart_baud'] < len(baud_rates):
+                print(f"UART Baud Rate:        {baud_rates[params['uart_baud']]} bps")
             
-            if 0 <= params['parity'] < len(parity_options):
-                print(f"UART Parity:            {parity_options[params['parity']]}")
+            if 'parity' in params and 0 <= params['parity'] < len(parity_options):
+                print(f"UART Parity:           {parity_options[params['parity']]}")
             
-            if 0 <= params['airRate'] < len(air_rates):
-                print(f"Air Rate:               {air_rates[params['airRate']]}")
+            if 'air_data_rate' in params and 0 <= params['air_data_rate'] < len(air_rates):
+                print(f"Air Data Rate:         {air_rates[params['air_data_rate']]}")
             
-            if 0 <= params['transmitPower'] < len(power_options):
-                print(f"Transmit Power:         {power_options[params['transmitPower']]}")
+            if 'transmission_power' in params and 0 <= params['transmission_power'] < len(power_options):
+                print(f"Transmission Power:    {power_options[params['transmission_power']]}")
             
-            if 0 <= params['packetSize'] < len(packet_options):
-                print(f"Packet Size:            {packet_options[params['packetSize']]}")
+            print(f"Fixed Transmission:    {'Enabled' if params.get('fixed_transmission', 0) else 'Disabled'}")
             
-            if 0 <= params['transMode'] < len(trans_options):
-                print(f"Transmission Mode:      {trans_options[params['transMode']]}")
+            if 'wake_up_time' in params and 0 <= params['wake_up_time'] < len(wake_options):
+                print(f"Wake-up Time:          {wake_options[params['wake_up_time']]}")
             
-            if 0 <= params['worPeriod'] < len(wor_options):
-                print(f"WOR Period:             {wor_options[params['worPeriod']]}")
+            if 'packet' in params and 0 <= params['packet'] < len(packet_options):
+                print(f"Packet Length:         {packet_options[params['packet']]}")
             
-            if 0 <= params['worRole'] < len(wor_role_options):
-                print(f"WOR Role:               {wor_role_options[params['worRole']]}")
-            
-            print(f"Network ID:             {params['netID']}")
-            print(f"Encryption Key:         {params.get('key', 'Not readable')}")
-            print(f"LBT Enable:             {'Enabled' if params['lbtEnable'] else 'Disabled'}")
-            print(f"RSSI Ambient Noise:     {'Enabled' if params['rssiEnable'] else 'Disabled'}")
-            print(f"RSSI Data Output:       {'Enabled' if params['dataRssiEnable'] else 'Disabled'}")
-            print(f"WOR Delay:              {params['worDelay']} ms")
-            print(f"Software Mode Switch:   {'Enabled' if params['switchMode'] else 'Disabled'}")
+            # E220-specific parameters
+            print(f"Listen Before Talk:    {'Enabled' if params.get('lbt', 0) else 'Disabled'}")
+            print(f"Ambient Noise RSSI:    {'Enabled' if params.get('erssi', 0) else 'Disabled'}")
+            print(f"Data RSSI:             {'Enabled' if params.get('drssi', 0) else 'Disabled'}")
+            print(f"Software Mode Switch:  {'Enabled' if params.get('sw_switch', 0) else 'Disabled'}")
             
             if self.args.output:
                 # Save to file
@@ -1469,52 +1740,41 @@ class E220CLI:
                 params["address"] = self.args.address
                 
             if self.args.channel is not None:
-                params["channel"] = self.args.channel
+                params["chan"] = self.args.channel
                 
-            if self.args.baudrate_idx is not None:
-                params["baudRate"] = self.args.baudrate_idx
+            if self.args.uart_baud is not None:
+                params["uart_baud"] = self.args.uart_baud
                 
             if self.args.parity is not None:
                 params["parity"] = self.args.parity
                 
-            if self.args.airrate is not None:
-                params["airRate"] = self.args.airrate
+            if self.args.air_rate is not None:
+                params["air_data_rate"] = self.args.air_rate
                 
             if self.args.power is not None:
-                params["transmitPower"] = self.args.power
+                params["transmission_power"] = self.args.power
                 
-            if self.args.packet_size is not None:
-                params["packetSize"] = self.args.packet_size
+            if self.args.fixed_trans is not None:
+                params["fixed_transmission"] = 1 if self.args.fixed_trans else 0
                 
-            if self.args.trans_mode is not None:
-                params["transMode"] = self.args.trans_mode
+            if self.args.wake_time is not None:
+                params["wake_up_time"] = self.args.wake_time
                 
-            if self.args.wor_period is not None:
-                params["worPeriod"] = self.args.wor_period
+            if self.args.packet is not None:
+                params["packet"] = self.args.packet
                 
-            if self.args.wor_role is not None:
-                params["worRole"] = self.args.wor_role
-                
-            if self.args.net_id is not None:
-                params["netID"] = self.args.net_id
-                
-            if self.args.key is not None:
-                params["key"] = self.args.key
-                
+            # E220-specific parameters
             if self.args.lbt is not None:
-                params["lbtEnable"] = 1 if self.args.lbt else 0
+                params["lbt"] = 1 if self.args.lbt else 0
                 
-            if self.args.rssi_env is not None:
-                params["rssiEnable"] = 1 if self.args.rssi_env else 0
+            if self.args.erssi is not None:
+                params["erssi"] = 1 if self.args.erssi else 0
                 
-            if self.args.rssi_data is not None:
-                params["dataRssiEnable"] = 1 if self.args.rssi_data else 0
+            if self.args.drssi is not None:
+                params["drssi"] = 1 if self.args.drssi else 0
                 
-            if self.args.wor_delay is not None:
-                params["worDelay"] = self.args.wor_delay
-                
-            if self.args.switch_mode is not None:
-                params["switchMode"] = 1 if self.args.switch_mode else 0
+            if self.args.sw_switch is not None:
+                params["sw_switch"] = 1 if self.args.sw_switch else 0
         
         # Check if we have parameters to write
         if not params:
@@ -1552,22 +1812,18 @@ class E220CLI:
             logger.error("Failed to perform factory reset")
             return 1
     
-    def _send_command(self):
-        """Send a custom AT command"""
-        if not self.args.at_command:
-            logger.error("No AT command specified")
-            return 1
-            
-        command = self.args.at_command
-        logger.info(f"Sending command: {command}")
+    def _get_version(self):
+        """Get module version information"""
+        logger.info("Getting module version...")
         
-        response = self.module.send_custom_command(command)
+        version_info = self.module.version()
         
-        if response is not None:
-            logger.info(f"Response: {response}")
+        if version_info:
+            print(f"Model: {version_info['model']}")
+            print(f"Firmware: {version_info['version']}")
             return 0
         else:
-            logger.error("Failed to send command or no response received")
+            logger.error("Failed to get module version")
             return 1
     
     def _save_config(self):
@@ -1626,11 +1882,32 @@ class E220CLI:
                 print(f"- {port.device}: {port.description}")
                 
         return 0
+    
+    def _send_data(self):
+        """Send data through the module"""
+        if not self.args.data:
+            logger.error("No data specified to send")
+            return 1
+            
+        logger.info(f"Sending data: {self.args.data}")
+        
+        # Switch to normal mode for transmission
+        if not self.module.set_mode(ModuleMode.NORMAL):
+            logger.error("Failed to set module to normal mode")
+            return 1
+            
+        try:
+            self.module.serial.write(self.args.data.encode('utf-8'))
+            logger.info("Data sent successfully")
+            return 0
+        except Exception as e:
+            logger.error(f"Failed to send data: {e}")
+            return 1
 
 
 def setup_arg_parser():
     """Set up the argument parser for CLI mode"""
-    parser = argparse.ArgumentParser(description='E220 LoRa Module Configurator')
+    parser = argparse.ArgumentParser(description='E220-915MHz LoRa Module Configurator')
     
     # Global options
     parser.add_argument('--cli', action='store_true', help='Run in command-line mode')
@@ -1653,22 +1930,19 @@ def setup_arg_parser():
     write_parser = subparsers.add_parser('write', help='Write module parameters')
     write_parser.add_argument('--input', '-i', help='Load parameters from file')
     write_parser.add_argument('--address', type=int, help='Module address (0-65535)')
-    write_parser.add_argument('--channel', type=int, help='Channel (0-83)')
-    write_parser.add_argument('--baudrate-idx', type=int, help='UART baudrate index (0-7)')
+    write_parser.add_argument('--channel', type=int, help='Channel (0-80)')
+    write_parser.add_argument('--uart-baud', type=int, help='UART baudrate index (0-7)')
     write_parser.add_argument('--parity', type=int, help='UART parity (0-3)')
-    write_parser.add_argument('--airrate', type=int, help='Air rate index (0-7)')
+    write_parser.add_argument('--air-rate', type=int, help='Air rate index (0-7)')
     write_parser.add_argument('--power', type=int, help='Transmit power index (0-3)')
-    write_parser.add_argument('--packet-size', type=int, help='Packet size index (0-3)')
-    write_parser.add_argument('--trans-mode', type=int, help='Transmission mode (0=transparent, 1=fixed)')
-    write_parser.add_argument('--wor-period', type=int, help='WOR period index (0-7)')
-    write_parser.add_argument('--wor-role', type=int, help='WOR role (0=receiver, 1=transmitter)')
-    write_parser.add_argument('--net-id', type=int, help='Network ID (0-255)')
-    write_parser.add_argument('--key', type=int, help='Encryption key (0-65535)')
-    write_parser.add_argument('--lbt', type=bool, help='Listen Before Talk enable (True/False)')
-    write_parser.add_argument('--rssi-env', type=bool, help='RSSI ambient noise enable (True/False)')
-    write_parser.add_argument('--rssi-data', type=bool, help='RSSI data output enable (True/False)')
-    write_parser.add_argument('--wor-delay', type=int, help='WOR delay sleep time (0-65535ms)')
-    write_parser.add_argument('--switch-mode', type=bool, help='Software mode switching enable (True/False)')
+    write_parser.add_argument('--fixed-trans', type=bool, help='Fixed transmission mode (True/False)')
+    write_parser.add_argument('--wake-time', type=int, help='Wake-up time index (0-7)')
+    write_parser.add_argument('--packet', type=int, help='Packet length index (0-3)')
+    # E220-specific parameters
+    write_parser.add_argument('--lbt', type=bool, help='Listen Before Talk (True/False)')
+    write_parser.add_argument('--erssi', type=bool, help='Ambient Noise RSSI (True/False)')
+    write_parser.add_argument('--drssi', type=bool, help='Data RSSI (True/False)')
+    write_parser.add_argument('--sw-switch', type=bool, help='Software Mode Switching (True/False)')
     
     # reset command
     subparsers.add_parser('reset', help='Reset the module')
@@ -1676,9 +1950,8 @@ def setup_arg_parser():
     # factory-reset command
     subparsers.add_parser('factory-reset', help='Reset the module to factory defaults')
     
-    # send-command
-    send_parser = subparsers.add_parser('send-command', help='Send a custom AT command')
-    send_parser.add_argument('at_command', help='AT command to send')
+    # version command
+    subparsers.add_parser('version', help='Get module version information')
     
     # save-config command
     save_parser = subparsers.add_parser('save-config', help='Save current module configuration to file')
@@ -1690,6 +1963,10 @@ def setup_arg_parser():
     
     # scan-ports command
     subparsers.add_parser('scan-ports', help='Scan and display available serial ports')
+    
+    # send-data command
+    send_parser = subparsers.add_parser('send-data', help='Send data through the module')
+    send_parser.add_argument('--data', required=True, help='Data to send')
     
     return parser
 
