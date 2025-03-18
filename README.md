@@ -11,7 +11,7 @@ This guide will help you quickly set up and start using the E220 LoRa Module Con
 ### Steps
 1. Download the software:
    ```bash
-   git clone https://github.com/username/e220-configurator.git
+   git clone https://github.com/dmahony/e220-configurator.git
    cd e220-configurator
    ```
 
