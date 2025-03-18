@@ -1,155 +1,228 @@
-# E220 LoRa Module Configurator - Quick Start Guide
+# E220-915MHz LoRa Module Configurator
 
-This guide will help you quickly set up and start using the E220 LoRa Module Configurator for your EBYTE E220 series modules.
+A cross-platform application for configuring EBYTE E220 series LoRa modules. This tool provides both a GUI and CLI interface for complete module configuration and testing.
 
-## 1. Installation
+![E220 LoRa Module](https://i.imgur.com/example.jpg)
+
+## Features
+
+- **Cross-Platform**: Works on Windows, macOS, and Linux
+- **Dual Interface**: Both graphical (GUI) and command-line (CLI) interfaces
+- **Complete Configuration**: Full access to all module parameters
+- **Real-Time Testing**: Send and receive data directly from the interface
+- **Parameter Saving/Loading**: Save configurations to files and load them later
+- **Automatic Port Detection**: Automatically finds available serial ports
+- **Optional GPIO Control**: Direct control of module pins on compatible hardware (e.g., Raspberry Pi)
+
+## Supported Modules
+
+- E220-400T22S/E220-400T30S (433MHz versions)
+- E220-400T22D/E220-400T30D (433MHz versions) 
+- E220-900T22S/E220-900T30S (868/915MHz versions)
+- E220-900T22D/E220-900T30D (868/915MHz versions)
+
+## Installation
 
 ### Prerequisites
-- Python 3.6 or higher installed
-- USB-to-UART/TTL adapter for connecting to the E220 module
 
-### Steps
-1. Download the software:
-   ```bash
-   git clone https://github.com/dmahony/e220-configurator.git
-   cd e220-configurator
-   ```
+- Python 3.6 or higher
+- pip (Python package manager)
 
-2. Install required dependencies:
-   ```bash
-   pip install pyserial
-   ```
+### Installing Dependencies
 
-3. For Raspberry Pi GPIO support (optional):
-   ```bash
-   pip install RPi.GPIO
-   ```
+```bash
+pip install pyserial
+```
 
-## 2. Hardware Connection
+If you want to use the GUI:
+```bash
+pip install tk  # On some systems, tkinter is bundled with Python
+```
 
-Connect your E220 module to your computer:
+For GPIO control on Raspberry Pi:
+```bash
+pip install RPi.GPIO
+```
 
-1. Standard connection (manual mode control):
-   - USB-UART TX → E220 RX
-   - USB-UART RX → E220 TX
-   - USB-UART GND → E220 GND
-   - USB-UART VCC (3.3V-5V) → E220 VCC
-   - Set E220 M0 and M1 pins both HIGH for configuration mode
+### Installing the Application
 
-2. Raspberry Pi connection with GPIO (automatic mode control):
-   - Same UART connections as above
-   - Raspberry Pi GPIO pin (default: 16) → E220 M0
-   - Raspberry Pi GPIO pin (default: 17) → E220 M1
-   - Raspberry Pi GPIO pin (default: 22) → E220 AUX (optional)
+1. Clone this repository or download the source code:
+```bash
+git clone https://github.com/yourusername/e220-configurator.git
+cd e220-configurator
+```
 
-## 3. Starting the Application
+2. Run the application:
+```bash
+python e220_configurator.py
+```
+
+## Hardware Connection
+
+### Basic Connection (USB-to-Serial Adapter)
+
+| E220 Module | USB-TTL Adapter | Notes |
+|-------------|-----------------|-------|
+| M0          | GPIO or GND/VCC | Pull HIGH for config mode |
+| M1          | GPIO or GND/VCC | Pull HIGH for config mode |
+| RXD         | TXD             | Cross-connected |
+| TXD         | RXD             | Cross-connected |
+| AUX         | GPIO (optional) | Status indicator |
+| VCC         | 3.3V-5.5V       | Power supply (5V recommended) |
+| GND         | GND             | Ground reference |
+
+### Configuration Mode
+
+To put the module in configuration mode (for parameter settings):
+- Set M0 = HIGH
+- Set M1 = HIGH
+
+### Normal Operation Mode
+
+For normal transparent transmission:
+- Set M0 = LOW
+- Set M1 = LOW
+
+## Usage
 
 ### GUI Mode
+
+1. Run the application without any arguments:
 ```bash
-python e220_config.py
+python e220_configurator.py
 ```
+
+2. Select the serial port from the dropdown menu
+3. Set the baud rate (default is 9600)
+4. Click "Connect" to establish a connection with the module
+5. Navigate through the tabs to configure settings:
+   - **Basic Settings**: Address, channel, baud rate, parity, air rate, and transmit power
+   - **Advanced Settings**: Transmission mode, wake-up time, packet length, and E220-specific features
+   - **Monitor**: Monitor received data and send test messages
 
 ### CLI Mode
-```bash
-# Scan for available serial ports
-python e220_config.py --cli scan-ports
 
-# Read current configuration
-python e220_config.py --cli --port COM3 read
-```
-
-## 4. Basic Configuration (GUI)
-
-1. Connect to the module:
-   - Select your COM port from the dropdown list
-   - Set the baud rate (default: 9600)
-   - Click "Connect"
-
-2. Read current configuration:
-   - After connecting, the application will attempt to read the current settings
-   - If successful, all parameters will be populated in the interface
-
-3. Modify settings:
-   - Change parameters as needed in the "Basic Settings" tab
-   - For more advanced options, use the "Advanced Settings" tab
-
-4. Write configuration:
-   - Click "Write to Module" to save changes
-   - If changing the baud rate, you'll need to disconnect and reconnect at the new rate
-
-5. Save your configuration:
-   - Click "Save Config" to store your settings in a JSON file for future use
-
-## 5. Common Configuration Scenarios
-
-### Creating a Paired Set of Modules
-To set up two modules to communicate with each other:
-
-1. Set both modules to the same channel
-2. Set both modules to the same air rate
-3. For transparent transmission (default):
-   - No address configuration needed
-4. For fixed-point transmission:
-   - Set unique addresses for each module
-   - Set transmission mode to "Fixed Point"
-
-### Optimizing for Long Range
-For maximum transmission distance:
-
-1. Set air rate to 2.4 kbps (rate index 0, 1, or 2)
-2. Set transmit power to maximum (power index 0)
-3. Use high-quality antennas
-
-### Low Power Configuration
-For battery-powered applications:
-
-1. Set up WOR (Wake-on-Radio) mode:
-   - One module as WOR transmitter (WOR role index 1)
-   - Other module(s) as WOR receiver (WOR role index 0)
-2. Increase WOR period to reduce power consumption
-3. Reduce transmit power if range requirements allow
-
-## 6. Command Line Examples
+The configurator also offers a powerful command-line interface:
 
 ```bash
-# Save current configuration to file
-python e220_config.py --cli --port COM3 save-config -o myconfiguration.json
-
-# Load configuration from file
-python e220_config.py --cli --port COM3 load-config -i myconfiguration.json
-
-# Set address and channel
-python e220_config.py --cli --port COM3 write --address 1234 --channel 10
-
-# Reset module
-python e220_config.py --cli --port COM3 reset
-
-# Factory reset
-python e220_config.py --cli --port COM3 factory-reset
-
-# Get help
-python e220_config.py --help
+python e220_configurator.py --cli [options] command
 ```
 
-## 7. Troubleshooting
+Available commands:
 
-- **Can't connect to module**
-  - Verify correct COM port selected
-  - Check that module is powered
-  - Ensure M0 and M1 pins are both HIGH for configuration mode
-  - Try a different baud rate
+- `read`: Read and display module parameters
+```bash
+python e220_configurator.py --cli --port COM3 read
+python e220_configurator.py --cli --port /dev/ttyUSB0 read --output params.json
+```
 
-- **Module not responding to commands**
-  - Disconnect and reconnect the module
-  - Check TX/RX connections (may need to be swapped)
-  - Try resetting the module
+- `write`: Write parameters to the module
+```bash
+python e220_configurator.py --cli --port COM3 write --address 1234 --channel 23
+python e220_configurator.py --cli --port COM3 write --input params.json
+```
 
-- **Changes don't take effect**
-  - Some changes require a module reset
-  - Verify that parameters were successfully written
+- `reset`: Reset the module
+```bash
+python e220_configurator.py --cli --port COM3 reset
+```
 
-## Next Steps
+- `factory-reset`: Reset the module to factory defaults
+```bash
+python e220_configurator.py --cli --port COM3 factory-reset
+```
 
-- Explore advanced features in the "Advanced Settings" tab
-- Try the command console for direct AT command access
-- Save your configurations for different use cases
+- `version`: Get module version information
+```bash
+python e220_configurator.py --cli --port COM3 version
+```
+
+- `save-config`: Save current module configuration to file
+```bash
+python e220_configurator.py --cli --port COM3 save-config --output config.json
+```
+
+- `load-config`: Load and apply configuration from file
+```bash
+python e220_configurator.py --cli --port COM3 load-config --input config.json
+```
+
+- `scan-ports`: Scan and display available serial ports
+```bash
+python e220_configurator.py --cli scan-ports
+```
+
+- `send-data`: Send data through the module
+```bash
+python e220_configurator.py --cli --port COM3 send-data --data "Hello LoRa!"
+```
+
+## Parameter Explanation
+
+### Basic Parameters
+
+- **Address (0-65535)**: Module address for fixed-point transmission
+- **Channel (0-80)**: Frequency channel, calculated as 850.125MHz + Channel*1MHz for 915MHz modules
+- **UART Baud Rate**: Communication speed between module and host
+  - Options: 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200 bps
+- **UART Parity**: Serial port parity setting
+  - Options: 8N1, 8O1, 8E1
+- **Air Rate**: Wireless transmission speed
+  - Options: 2.4k, 4.8k, 9.6k, 19.2k, 38.4k, 62.5k bps
+- **Transmit Power**: RF output power
+  - Options: 30dBm (max), 27dBm, 24dBm, 21dBm
+
+### Advanced Parameters
+
+- **Transmission Mode**: 
+  - Transparent: All serial data is transmitted as received
+  - Fixed-Point: Data is transmitted with address and channel headers
+- **Wake-up Time**: Period between wake-ups in WOR mode
+  - Options: 500ms, 1000ms, 1500ms, 2000ms, 2500ms, 3000ms, 3500ms, 4000ms
+- **Packet Length**: Maximum bytes per wireless packet
+  - Options: 200 bytes, 128 bytes, 64 bytes, 32 bytes
+- **Listen Before Talk (LBT)**: Check channel before transmitting
+- **Ambient Noise RSSI**: Enable ambient noise RSSI monitoring
+- **Data RSSI**: Append RSSI byte to received data
+- **Software Mode Switching**: Enable mode switching via AT commands
+
+## Operating Modes
+
+The E220 module has 4 operating modes controlled by M0 and M1 pins:
+
+- **Mode 0 (M0=0, M1=0)**: Normal mode - UART and wireless channels are open for transparent transmission
+- **Mode 1 (M0=0, M1=1)**: WOR transmit mode - Sends data with wake-up code for WOR receivers
+- **Mode 2 (M0=1, M1=0)**: WOR receive mode - Listens periodically to save power
+- **Mode 3 (M0=1, M1=1)**: Sleep/configuration mode - For settings configuration via AT commands
+
+## Troubleshooting
+
+### Module Not Responding
+- Ensure the module is properly powered (3.3V-5.5V)
+- Verify the serial connections (TXD → RXD, RXD → TXD)
+- Confirm M0 and M1 are both HIGH for configuration mode
+- Try a different baud rate (default is 9600bps)
+
+### Cannot Write Parameters
+- Ensure you're in configuration mode (M0=HIGH, M1=HIGH)
+- Check that the parameter values are within valid ranges
+- Verify the serial connection is stable
+
+### Poor Transmission Performance
+- Adjust the transmission power
+- Try a lower air data rate for better range
+- Ensure antennas are properly connected and positioned
+- Verify modules are using the same channel and air rate
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Acknowledgments
+
+- EBYTE for the E220 module documentation
+- Contributors to the project
+
+---
+
+*Disclaimer: This tool is not officially associated with EBYTE. Use at your own risk.*
