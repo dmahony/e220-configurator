@@ -433,11 +433,11 @@ class E220ModernizedGUI:
         actions_header.pack(padx=SPACING["md"], pady=(SPACING["sm"], SPACING["sm"]), anchor=tk.W)
         
         action_buttons = [
-            ("📖  READ CONFIG", self._read_config, "Read current configuration"),
-            ("✏️  WRITE TO MODULE", self._write_to_module, "Write settings to device"),
-            ("💾  SAVE CONFIG", self._save_config, "Export configuration"),
-            ("📂  LOAD CONFIG", self._load_config, "Import configuration"),
-            ("🔄  RESET MODULE", self._reset_module, "Restart the device"),
+            ("📖	READ CONFIG", self._read_config, "Read current configuration"),
+            ("✏️	WRITE TO MODULE", self._write_to_module, "Write settings to device"),
+            ("💾	SAVE CONFIG", self._save_config, "Export configuration"),
+            ("📂	LOAD CONFIG", self._load_config, "Import configuration"),
+            ("🔄	RESET MODULE", self._reset_module, "Restart the device"),
         ]
 
         
@@ -484,7 +484,6 @@ class E220ModernizedGUI:
         for i, (tab_name, tab_label) in enumerate([
             ("basic", "BASIC SETTINGS"),
             ("advanced", "ADVANCED SETTINGS"),
-            ("monitor", "MONITOR"),
         ]):
             btn = tk.Button(
                 tab_frame,
@@ -512,7 +511,6 @@ class E220ModernizedGUI:
         # Build individual tabs
         self._build_basic_tab()
         self._build_advanced_tab()
-        self._build_monitor_tab()
         
         # Show basic tab by default
         self._switch_tab("basic")
@@ -651,53 +649,6 @@ class E220ModernizedGUI:
             self.sw_switch_var,
             "Allow mode changes via serial commands", 6
         )
-    
-    def _build_monitor_tab(self):
-        """Build monitoring/debugging tab with enhanced display"""
-        self.tabs["monitor"] = tk.Frame(self.tab_content, bg=COLORS["bg_secondary"])
-        
-        # Register display header
-        header = tk.Label(
-            self.tabs["monitor"],
-            text="REGISTER VALUES (HEX)",
-            font=self.font_subheading,
-            bg=COLORS["bg_secondary"],
-            fg=COLORS["accent_primary"]
-        )
-        header.pack(padx=SPACING["md"], pady=SPACING["md"], anchor=tk.W)
-        
-        # Register display with depth effect
-        reg_frame = tk.Frame(self.tabs["monitor"], bg=COLORS["bg_tertiary"], relief=tk.SUNKEN, bd=1)
-        reg_frame.pack(fill=tk.BOTH, expand=True, padx=SPACING["md"], pady=SPACING["md"])
-        
-        self.register_text = tk.Label(
-            reg_frame,
-            text="No data",
-            font=self.font_value,
-            bg=COLORS["bg_tertiary"],
-            fg=COLORS["accent_secondary"],
-            justify=tk.LEFT
-        )
-        self.register_text.pack(padx=SPACING["md"], pady=SPACING["md"])
-        
-        # Refresh button with hover effect
-        refresh_btn = tk.Button(
-            self.tabs["monitor"],
-            text="🔄  REFRESH REGISTERS",
-            command=self._refresh_registers,
-            font=self.font_label_bold,
-            bg=COLORS["bg_tertiary"],
-            fg=COLORS["text_primary"],
-            activebackground=COLORS["accent_secondary"],
-            activeforeground=COLORS["bg_primary"],
-            relief=tk.FLAT,
-            bd=0,
-            padx=SPACING["md"],
-            pady=SPACING["sm"],
-            cursor="hand2"
-        )
-        refresh_btn.pack(padx=SPACING["md"], pady=SPACING["md"])
-        self._apply_button_hover(refresh_btn, COLORS["bg_tertiary"], COLORS["bg_hover"])
     
     def _build_right_panel(self, parent):
         """Build right info panel with real-time status and enhanced design"""
