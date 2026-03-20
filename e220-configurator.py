@@ -304,21 +304,26 @@ class E220Module:
                 port=self.port,
                 baudrate=self.baudrate,
                 timeout=self.timeout,
-                bytesize=serial.EIGHTBITS,
-                parity=serial.PARITY_NONE,
-                stopbits=serial.STOPBITS_ONE,
-                xonxoff=False,      # Disable software flow control
-                rtscts=False,        # Disable hardware flow control (Windows COM port issue)
-                dsrdtr=False         # Disable DSR/DTR handshaking
+                bytesize=serial.EIGHTBITS,      # MUST be 8 bits
+                parity=serial.PARITY_NONE,      # MUST be no parity
+                stopbits=serial.STOPBITS_ONE,   # MUST be 1 stop bit
+                xonxoff=False,                  # Disable software flow control
+                rtscts=False,                   # Disable hardware flow control
+                dsrdtr=False,                   # Disable DSR/DTR handshaking
+                write_timeout=2                 # Add write timeout for safety
             )
-            # For Windows: explicitly manage DTR/RTS
+            
+            # For Windows: explicitly manage DTR/RTS and verify settings
             try:
                 self.serial.dtr = True
                 self.serial.rts = True
             except:
-                pass  # Not all serial implementations support these
+                pass
             
-            time.sleep(0.5)  # Longer delay for port to settle (Windows needs more time)
+            # Verify the serial port settings (Windows sometimes ignores these)
+            logger.debug(f"Serial config: {self.serial.bytesize} bits, parity={self.serial.parity}, stopbits={self.serial.stopbits}")
+            
+            time.sleep(0.5)  # Longer delay for port to settle
             logger.info(f"Connected to port {self.port} at {self.baudrate} baud")
             return True
         except serial.SerialException as e:
@@ -521,6 +526,12 @@ class E220Module:
         echo_regs = list(response[3:3 + count])
         if echo_regs != list(regs):
             logger.error(f"Echo registers don't match: sent {list(regs)}, got {echo_regs}")
+            
+            # Log byte-by-byte for diagnosis
+            for i, (sent, echo) in enumerate(zip(list(regs), echo_regs)):
+                if sent != echo:
+                    logger.warning(f"  Register[{i}]: sent 0x{sent:02X}, echo 0x{echo:02X}, XOR 0x{sent^echo:02X} (bit flip: {bin(sent^echo)})")
+            
             return False
 
         logger.info("Write confirmed")

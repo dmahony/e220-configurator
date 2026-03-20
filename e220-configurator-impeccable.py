@@ -871,6 +871,14 @@ class E220ImpeccableGUI:
                     "transmission_power": int(self.power_var.get()),
                 }
                 
+                # Debug: Log what we're about to send
+                print(f"DEBUG: Writing parameters:")
+                print(f"  UART Baud: {params['uart_baud']} ({UART_BAUD_RATES[params['uart_baud']]} bps)")
+                print(f"  Parity: {params['parity']} ({PARITY_LABELS[params['parity']]})")
+                print(f"  Air Rate: {params['air_data_rate']} ({AIR_RATE_LABELS[params['air_data_rate']]})")
+                print(f"  Power: {params['transmission_power']} ({TX_POWER_LABELS[params['transmission_power']]})")
+                print(f"  Channel: {params['chan']}")
+                
                 # Send to module
                 if self.module.set_parameters(params):
                     self._refresh_registers()
