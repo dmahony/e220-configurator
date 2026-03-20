@@ -419,29 +419,30 @@ class E220ImpeccableGUI:
             fg=COLORS["accent_primary"]
         ).pack(padx=8, pady=6)
         
-        # UART settings - use indices, not labels
-        self._add_combobox_field(
+        # UART settings - display labels but store indices
+        baud_labels = [f"{UART_BAUD_RATES[i]} bps" for i in range(len(UART_BAUD_RATES))]
+        self._add_labeled_combobox_field(
             self.tabs["basic"], "UART Baud Rate",
-            self.uart_baud_var, list(range(len(UART_BAUD_RATES))),
+            self.uart_baud_var, baud_labels,
             "Serial port communication speed", 2
         )
         
-        self._add_combobox_field(
+        self._add_labeled_combobox_field(
             self.tabs["basic"], "UART Parity",
-            self.parity_var, list(range(len(PARITY_LABELS))),
+            self.parity_var, PARITY_LABELS,
             "Serial port parity setting", 3
         )
         
-        # Radio settings - use indices, not labels
-        self._add_combobox_field(
+        # Radio settings - display labels but store indices
+        self._add_labeled_combobox_field(
             self.tabs["basic"], "Air Data Rate",
-            self.air_rate_var, list(range(len(AIR_RATE_LABELS))),
+            self.air_rate_var, AIR_RATE_LABELS,
             "Wireless transmission speed (kbps)", 4
         )
         
-        self._add_combobox_field(
+        self._add_labeled_combobox_field(
             self.tabs["basic"], "Transmit Power",
-            self.power_var, list(range(len(TX_POWER_LABELS))),
+            self.power_var, TX_POWER_LABELS,
             "RF transmitter output power", 5
         )
     
@@ -641,6 +642,55 @@ class E220ImpeccableGUI:
             width=20
         )
         combo.pack(side=tk.LEFT, padx=4, fill=tk.X, expand=True)
+    
+    def _add_labeled_combobox_field(self, parent, label, variable, display_values, hint, row):
+        """Add a dropdown field that displays labels but stores indices.
+        
+        Args:
+            variable: IntVar that stores the selected index (0, 1, 2, ...)
+            display_values: List of human-readable labels to show in dropdown
+        """
+        row_frame = self._add_parameter_row(parent, label, row, hint)
+        
+        combo = ttk.Combobox(
+            row_frame,
+            values=display_values,
+            state="readonly",
+            width=20
+        )
+        combo.pack(side=tk.LEFT, padx=4, fill=tk.X, expand=True)
+        
+        # When user selects from dropdown, update the variable with the index
+        def on_select(event=None):
+            selected_label = combo.get()
+            if selected_label:
+                try:
+                    # Find the index of the selected label
+                    index = display_values.index(selected_label)
+                    variable.set(index)
+                except ValueError:
+                    pass
+        
+        combo.bind("<<ComboboxSelected>>", on_select)
+        
+        # When variable changes (e.g., from reading config), update the displayed label
+        def on_variable_change(*args):
+            try:
+                idx = int(variable.get())
+                if 0 <= idx < len(display_values):
+                    combo.set(display_values[idx])
+            except (ValueError, IndexError):
+                pass
+        
+        variable.trace_add("write", on_variable_change)
+        
+        # Set initial value
+        try:
+            idx = int(variable.get())
+            if 0 <= idx < len(display_values):
+                combo.set(display_values[idx])
+        except (ValueError, IndexError):
+            pass
     
     def _add_checkbox_field(self, parent, label, variable, hint, row):
         """Add a checkbox field for a parameter"""
