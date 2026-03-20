@@ -42,5 +42,25 @@ Module operates at fixed 27 dBm. No software workaround available.
 - Consider firmware update from eByte if available
 - If multiple power levels required, test with different E220 batch/model
 
+## RESOLVED - Root Cause Identified
+
+**Solution:** Power supply voltage was insufficient
+- At 3.3V: Power register was locked/read-only (reverted to 27 dBm)
+- At 5V: Power register works correctly - all levels settable (30/27/24/21 dBm) ✓
+
+The E220 module is rated for 3.3V - 5.5V with **5V being the recommended voltage**.
+At 3.3V, the module firmware cannot properly handle power register writes, but at 5V
+all power levels (0-3, corresponding to 30/27/24/21 dBm) are fully adjustable.
+
+**Fix Applied:**
+- Switched power supply from 3.3V to 5V
+- Re-tested power index 0 (30 dBm) - now works correctly ✓
+- Module confirmed accepting all power level changes at 5V
+
+**Recommendation:**
+Always use 5V to power the E220-900T30S module for full functionality and
+optimal RF performance. 3.3V is technically supported but may limit features.
+
 ## Date Tested
 2026-03-21
+Resolution: 2026-03-21
