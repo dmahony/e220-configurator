@@ -412,12 +412,19 @@ class E220Module:
             logger.error("Not connected to module")
             return None
 
-        # Clear any pending data
+        # Clear any pending data - use aggressive flush for Windows COM ports
         self.serial.reset_input_buffer()
-
+        self.serial.reset_output_buffer()
+        time.sleep(0.1)  # Longer delay to ensure module finishes sending previous response
+        
+        # Extra safety: drain any remaining bytes that might have arrived
+        self.serial.reset_input_buffer()  # Second clear after delay
+        
         # Send command
         logger.debug(f"Sending: {' '.join(f'0x{b:02X}' for b in cmd_bytes)}")
         self.serial.write(bytes(cmd_bytes))
+        self.serial.flush()  # Ensure data is written before reading response
+        time.sleep(0.02)  # Brief delay to ensure module processes command
 
         # Read response
         if expected_response_len:
@@ -476,22 +483,31 @@ class E220Module:
         """
         count = len(regs)
         cmd = [CMD_WRITE, start_reg, count] + list(regs)
+        logger.info(f"WRITE command bytes: {' '.join(f'0x{b:02X}' for b in cmd)}")
         # Expect echo: [0xC0, start_reg, count, reg0, reg1, ...]
         expected_len = 3 + count
+        logger.info(f"Expecting response length: {expected_len} bytes, first byte should be 0xC0")
         response = self._send_command(cmd, expected_len, timeout=1.5)
+        if response:
+            logger.info(f"Write response received ({len(response)} bytes): {' '.join(f'0x{b:02X}' for b in response)}")
 
         if not response or len(response) < expected_len:
             logger.error(f"Invalid write response: got {len(response) if response else 0} bytes, expected {expected_len}")
             return False
 
         # Verify echo matches what we wrote
-        if response[0] != CMD_WRITE:
+        # Note: Some E220 firmware versions echo back 0xC1 instead of 0xC0 for writes.
+        # We'll accept either and verify the data instead.
+        if response[0] not in (CMD_WRITE, CMD_READ):
             logger.error(f"Bad write response header: 0x{response[0]:02X}")
             return False
+        
+        if response[0] == CMD_READ:
+            logger.warning("Module echoed 0xC1 (READ) header for WRITE command - firmware quirk detected, but data is valid")
 
         echo_regs = list(response[3:3 + count])
         if echo_regs != list(regs):
-            logger.error(f"Write echo mismatch: sent {regs}, got {echo_regs}")
+            logger.error(f"Echo registers don't match: sent {list(regs)}, got {echo_regs}")
             return False
 
         logger.info("Write confirmed")

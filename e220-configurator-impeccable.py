@@ -772,7 +772,11 @@ class E220ImpeccableGUI:
                 self.air_rate_var.set(params.get("air_data_rate", 0))
                 self.power_var.set(params.get("transmission_power", 0))
                 
+                # Update display labels
                 self._update_frequency_display()
+                self._update_baud_display()
+                self._update_air_rate_display()
+                self._update_power_display()
                 self._refresh_registers()
                 messagebox.showinfo("Success", "Configuration read successfully")
         except Exception as e:
