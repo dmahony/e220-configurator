@@ -1,25 +1,12 @@
 #!/usr/bin/env python3
 """
-E220-915MHz LoRa Module Configurator - Modernized Impeccable GUI Edition
-========================================================================
+E220-915MHz LoRa Module Configurator - Impeccable GUI Edition
+============================================================
 
 A beautifully designed, production-grade GUI for configuring EBYTE E220 LoRa modules.
-This version implements comprehensive Impeccable design principles with 2025+ styling:
-
-DESIGN ENHANCEMENTS:
-- Premium typography (18-20pt display, 14pt headings, enhanced hierarchy)
-- Consistent spacing scale (4/8/12/16/24px with rhythm)
-- Component shadows and depth (buttons +2px, panels +4px)
-- Interactive feedback (hover states, focus rings, active states)
-- Animation support (fade transitions, pulsing indicators, smooth updates)
-- Advanced form components (input focus borders, validation indicators)
-- Accessibility features (tooltips, keyboard navigation, focus visibility)
-- Custom shadow/depth system using relief and borderwidth
-- Color state variations (hover_bg, active_bg, disabled_opacity)
-- Button hover effects via tag bindings
-
-Maintains:
+This version implements Impeccable design principles:
 - Industrial/utilitarian aesthetic with technical refinement
+- Clear visual hierarchy and progressive disclosure
 - Real-time frequency display and register visualization
 - Professional dark theme optimized for workbench environments
 """
@@ -32,7 +19,6 @@ import serial.tools.list_ports
 import sys
 import os
 import logging
-import time
 
 # Import the core E220Module from the main configurator
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -58,143 +44,75 @@ WAKE_TIME_LABELS = e220_main.WAKE_TIME_LABELS
 PACKET_LENGTHS = e220_main.PACKET_LENGTHS
 PACKET_LABELS = e220_main.PACKET_LABELS
 
-logger = logging.getLogger("E220-GUI-Modernized")
+logger = logging.getLogger("E220-GUI-Impeccable")
 
 # ============================================================================
-# Enhanced Color Palette (900 MHz inspired - warm amber/gold on dark background)
+# Color Palette (900 MHz inspired - warm amber/gold on dark background)
 # ============================================================================
 COLORS = {
-    # Primary backgrounds
-    "bg_primary": "#0f0f0f",           # Pure black background
-    "bg_secondary": "#1a1a1a",         # Slightly lighter for cards/sections
-    "bg_tertiary": "#252525",          # Lighter for interactive elements
-    "bg_hover": "#2a2a2a",             # Hover state background
-    "bg_active": "#333333",            # Active state background
-    
-    # Accent colors
-    "accent_primary": "#d97706",        # Warm amber (900 MHz band color)
-    "accent_primary_hover": "#ea580c",  # Lighter amber for hover
-    "accent_primary_dark": "#b45309",   # Darker amber for active
-    "accent_secondary": "#06b6d4",      # Teal (frequency complementary)
-    "accent_secondary_hover": "#22d3ee",# Lighter teal for hover
-    
-    # Text colors
-    "text_primary": "#f5f5f5",          # Off-white text
-    "text_secondary": "#a3a3a3",        # Dimmed text for labels
-    "text_tertiary": "#737373",         # Even dimmer for hints
-    "text_disabled": "#525252",         # Disabled text
-    
-    # Status colors
-    "success": "#10b981",               # Green for success states
-    "success_hover": "#059669",         # Darker green for hover
-    "warning": "#f59e0b",               # Amber for warnings
-    "error": "#ef4444",                 # Red for errors
-    "error_hover": "#dc2626",           # Darker red for hover
-    
-    # UI elements
-    "border": "#404040",                # Subtle borders
-    "border_focus": "#d97706",          # Accent color for focus borders
-    "border_error": "#ef4444",          # Red border for errors
-    "shadow": "#000000",                # Shadow color
+    "bg_primary": "#0f0f0f",      # Pure black background
+    "bg_secondary": "#1a1a1a",    # Slightly lighter for cards/sections
+    "bg_tertiary": "#252525",     # Lighter for interactive elements
+    "accent_primary": "#d97706",   # Warm amber (900 MHz band color)
+    "accent_secondary": "#06b6d4", # Teal (frequency complementary)
+    "text_primary": "#f5f5f5",     # Off-white text
+    "text_secondary": "#a3a3a3",   # Dimmed text for labels
+    "text_tertiary": "#737373",    # Even dimmer for hints
+    "success": "#10b981",          # Green for success states
+    "warning": "#f59e0b",          # Amber for warnings
+    "error": "#ef4444",            # Red for errors
+    "border": "#404040",           # Subtle borders
 }
 
 # ============================================================================
-# Spacing Scale (consistent rhythm)
-# ============================================================================
-SPACING = {
-    "xs": 4,      # Minimal spacing
-    "sm": 8,      # Small spacing
-    "md": 12,     # Medium spacing
-    "lg": 16,     # Large spacing
-    "xl": 24,     # Extra large spacing
-    "xxl": 32,    # Huge spacing
-}
-
-# ============================================================================
-# Modernized E220 GUI Class
+# E220 Impeccable GUI Class
 # ============================================================================
 
-class E220ModernizedGUI:
+class E220ImpeccableGUI:
     """
-    2025+ modernized design implementation of E220 Configurator GUI.
+    Impeccable design implementation of E220 Configurator GUI.
     
-    ENHANCEMENTS:
-    - Premium typography with proper hierarchy
-    - Consistent spacing scale throughout
-    - Component shadows and depth effects
-    - Interactive feedback (hover, focus, active states)
-    - Animation support for smooth transitions
-    - Improved form components with validation
-    - Accessibility features and tooltips
-    - Custom shadow system
-    - Color state variations
-    - Tag binding for hover effects
+    Design principles:
+    - Industrial/utilitarian aesthetic with technical refinement
+    - Progressive disclosure (basic → advanced)
+    - Real-time feedback (frequency, register values)
+    - Dark theme optimized for workbench environments
+    - High contrast, keyboard-navigable, clear focus states
     """
     
     def __init__(self, root):
         self.root = root
         self.root.title("E220 LoRa Module Configurator")
-        self.root.geometry("1280x850")
-        self.root.minsize(1100, 650)
+        self.root.geometry("1200x800")
+        self.root.minsize(1000, 600)
         
         # Configure window colors
         self.root.configure(bg=COLORS["bg_primary"])
         
-        # Configure fonts with enhanced typography
+        # Configure fonts
         self._setup_fonts()
         
         # Module instance
         self.module = None
         self.connected = False
         
-        # Animation state
-        self.pulse_state = False
-        self.animation_id = None
-        
         # Initialize parameter variables
         self._init_vars()
-        
-        # Store widget references for hover effects
-        self.button_widgets = []
-        self.hover_effects = {}
         
         # Build UI
         self._build_ui()
         
         # Set up window close handler
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
-        
-        # Start animation loop
-        self._start_animation()
     
     def _setup_fonts(self):
-        """Configure enhanced typography system with 2025+ hierarchy"""
-        # Display font - 20pt for main titles (increased from 16pt)
-        self.font_display = tkFont.Font(family="TkDefaultFont", size=20, weight="bold")
-        
-        # Heading font - 14pt (increased from 12pt)
-        self.font_heading = tkFont.Font(family="TkDefaultFont", size=14, weight="bold")
-        
-        # Subheading font - 11pt (new)
-        self.font_subheading = tkFont.Font(family="TkDefaultFont", size=11, weight="bold")
-        
-        # Label font - 10pt
+        """Configure typography system"""
+        # Display font (headings)
+        self.font_display = tkFont.Font(family="TkDefaultFont", size=16, weight="bold")
+        self.font_heading = tkFont.Font(family="TkDefaultFont", size=12, weight="bold")
         self.font_label = tkFont.Font(family="TkDefaultFont", size=10)
-        
-        # Label bold - 10pt bold (new for better hierarchy)
-        self.font_label_bold = tkFont.Font(family="TkDefaultFont", size=10, weight="bold")
-        
-        # Value font - 10pt Courier bold
         self.font_value = tkFont.Font(family="Courier", size=10, weight="bold")
-        
-        # Value large - 11pt Courier bold (new)
-        self.font_value_lg = tkFont.Font(family="Courier", size=11, weight="bold")
-        
-        # Hint font - 8pt
         self.font_hint = tkFont.Font(family="TkDefaultFont", size=8)
-        
-        # Keyboard shortcut font - 8pt italic
-        self.font_hint_italic = tkFont.Font(family="TkDefaultFont", size=8, slant="italic")
     
     def _init_vars(self):
         """Initialize all parameter variables"""
@@ -220,7 +138,7 @@ class E220ModernizedGUI:
         self.sw_switch_var = tk.BooleanVar(value=False)
         
         # Status
-        self.status_var = tk.StringVar(value="Disconnected")
+        self.status_var = tk.StringVar(value="●  Disconnected")
         self.frequency_var = tk.StringVar(value="900.125 MHz")
         
         # Add trace callbacks for display label updates
@@ -228,29 +146,8 @@ class E220ModernizedGUI:
         self.air_rate_var.trace_add("write", self._update_air_rate_display)
         self.power_var.trace_add("write", self._update_power_display)
     
-    def _create_shadow_frame(self, parent, bg_color, shadow_size=4):
-        """Create a frame with shadow effect using relief"""
-        frame = tk.Frame(parent, bg=bg_color, relief=tk.FLAT, bd=0)
-        return frame
-    
-    def _apply_button_hover(self, button, normal_bg, hover_bg, normal_fg=None, hover_fg=None):
-        """Apply hover effect to a button via tag bindings"""
-        def on_enter(event):
-            button.config(bg=hover_bg)
-            if hover_fg:
-                button.config(fg=hover_fg)
-        
-        def on_leave(event):
-            button.config(bg=normal_bg)
-            if normal_fg:
-                button.config(fg=normal_fg)
-        
-        button.bind("<Enter>", on_enter)
-        button.bind("<Leave>", on_leave)
-        self.button_widgets.append(button)
-    
     def _build_ui(self):
-        """Build the complete UI with modernized design"""
+        """Build the complete UI with impeccable design"""
         # Main container with dark background
         main_container = tk.Frame(self.root, bg=COLORS["bg_primary"])
         main_container.pack(fill=tk.BOTH, expand=True)
@@ -260,7 +157,7 @@ class E220ModernizedGUI:
         
         # Horizontal layout: Left sidebar + Main content area
         content_container = tk.Frame(main_container, bg=COLORS["bg_primary"])
-        content_container.pack(fill=tk.BOTH, expand=True, padx=SPACING["lg"], pady=SPACING["lg"])
+        content_container.pack(fill=tk.BOTH, expand=True, padx=16, pady=16)
         
         # Left sidebar: Navigation + Connection
         self._build_left_sidebar(content_container)
@@ -276,82 +173,60 @@ class E220ModernizedGUI:
     
     def _build_header(self, parent):
         """Build top header with connection status and title"""
-        header = tk.Frame(parent, bg=COLORS["bg_secondary"], relief=tk.FLAT, bd=0)
+        header = tk.Frame(parent, bg=COLORS["bg_secondary"], height=60)
         header.pack(fill=tk.X, padx=0, pady=0)
+        header.pack_propagate(False)
         
-        # Add subtle bottom border (depth effect)
-        border = tk.Frame(header, bg=COLORS["border"], height=1)
-        border.pack(side=tk.BOTTOM, fill=tk.X)
-        
-        # Title with enhanced typography
-        title_frame = tk.Frame(header, bg=COLORS["bg_secondary"])
-        title_frame.pack(side=tk.LEFT, padx=SPACING["lg"], pady=SPACING["lg"], fill=tk.BOTH, expand=True)
-        
+        # Title
         title = tk.Label(
-            title_frame,
+            header,
             text="E220 LoRa Module Configurator",
             font=self.font_display,
             bg=COLORS["bg_secondary"],
             fg=COLORS["text_primary"]
         )
-        title.pack(side=tk.LEFT)
+        title.pack(side=tk.LEFT, padx=16, pady=12)
         
-        # Subtitle
-        subtitle = tk.Label(
-            title_frame,
-            text="915MHz Frequency Band Configuration",
-            font=self.font_hint_italic,
-            bg=COLORS["bg_secondary"],
-            fg=COLORS["text_tertiary"]
-        )
-        subtitle.pack(side=tk.LEFT, padx=(SPACING["lg"], 0))
-        
-        # Connection status indicator with animation
+        # Connection status indicator
         status_frame = tk.Frame(header, bg=COLORS["bg_secondary"])
-        status_frame.pack(side=tk.RIGHT, padx=SPACING["lg"], pady=SPACING["lg"])
+        status_frame.pack(side=tk.RIGHT, padx=16, pady=12)
         
         self.status_indicator = tk.Label(
             status_frame,
-            text="● Disconnected",
-            font=self.font_label_bold,
+            textvariable=self.status_var,
+            font=self.font_label,
             bg=COLORS["bg_secondary"],
             fg=COLORS["text_tertiary"]
         )
         self.status_indicator.pack(side=tk.LEFT)
     
     def _build_left_sidebar(self, parent):
-        """Build left sidebar with connection controls and enhanced styling"""
-        sidebar = tk.Frame(parent, bg=COLORS["bg_secondary"], relief=tk.FLAT, bd=0)
-        sidebar.pack(side=tk.LEFT, fill=tk.BOTH, padx=(0, SPACING["md"]))
+        """Build left sidebar with connection controls"""
+        sidebar = tk.Frame(parent, bg=COLORS["bg_secondary"], width=280)
+        sidebar.pack(side=tk.LEFT, fill=tk.BOTH, padx=(0, 12))
         sidebar.pack_propagate(False)
-        sidebar.configure(width=300)
         
-        # Add subtle border effect
-        border = tk.Frame(sidebar, bg=COLORS["border"], width=1)
-        border.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        # Connection section header with uppercase
+        # Connection section header
         conn_header = tk.Label(
             sidebar,
-            text="CONNECTION",
-            font=self.font_subheading,
+            text="Connection",
+            font=self.font_heading,
             bg=COLORS["bg_secondary"],
             fg=COLORS["accent_primary"]
         )
-        conn_header.pack(padx=SPACING["md"], pady=(SPACING["md"], SPACING["sm"]), anchor=tk.W)
+        conn_header.pack(padx=12, pady=(12, 8), anchor=tk.W)
         
-        # Serial port selector with enhanced layout
-        port_label = tk.Label(
+        # Serial port selector
+        tk.Label(
             sidebar,
             text="Serial Port",
-            font=self.font_label_bold,
+            font=self.font_label,
             bg=COLORS["bg_secondary"],
             fg=COLORS["text_secondary"]
-        )
-        port_label.pack(padx=SPACING["md"], pady=(SPACING["md"], SPACING["xs"]), anchor=tk.W)
+        ).pack(padx=12, pady=(8, 2), anchor=tk.W)
         
         port_frame = tk.Frame(sidebar, bg=COLORS["bg_secondary"])
-        port_frame.pack(padx=SPACING["md"], pady=(0, SPACING["md"]), fill=tk.X)
+        port_frame.pack(padx=12, pady=(0, 12), fill=tk.X)
         
         self.port_combo = ttk.Combobox(
             port_frame,
@@ -359,36 +234,31 @@ class E220ModernizedGUI:
             width=30,
             state="readonly"
         )
-        self.port_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, SPACING["xs"]))
+        self.port_combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
         
-        # Refresh button with hover effect
         refresh_btn = tk.Button(
             port_frame,
             text="↻",
             command=self._refresh_ports,
-            font=self.font_label_bold,
-            width=3,
+            font=self.font_label,
+            width=2,
             bg=COLORS["bg_tertiary"],
             fg=COLORS["accent_secondary"],
             activebackground=COLORS["accent_secondary"],
             activeforeground=COLORS["bg_primary"],
             relief=tk.FLAT,
-            bd=0,
-            padx=SPACING["xs"],
-            pady=SPACING["xs"]
+            bd=0
         )
-        refresh_btn.pack(side=tk.RIGHT)
-        self._apply_button_hover(refresh_btn, COLORS["bg_tertiary"], COLORS["bg_hover"])
+        refresh_btn.pack(side=tk.RIGHT, padx=(4, 0))
         
         # Baud rate selector
-        baud_label = tk.Label(
+        tk.Label(
             sidebar,
             text="Baud Rate",
-            font=self.font_label_bold,
+            font=self.font_label,
             bg=COLORS["bg_secondary"],
             fg=COLORS["text_secondary"]
-        )
-        baud_label.pack(padx=SPACING["md"], pady=(SPACING["md"], SPACING["xs"]), anchor=tk.W)
+        ).pack(padx=12, pady=(12, 2), anchor=tk.W)
         
         baud_combo = ttk.Combobox(
             sidebar,
@@ -397,50 +267,48 @@ class E220ModernizedGUI:
             state="readonly",
             width=30
         )
-        baud_combo.pack(padx=SPACING["md"], pady=(0, SPACING["md"]), fill=tk.X)
+        baud_combo.pack(padx=12, pady=(0, 12), fill=tk.X)
         
-        # Connect/Disconnect button with enhanced styling
+        # Connect/Disconnect button
         self.connect_btn = tk.Button(
             sidebar,
-            text="▶  CONNECT",
+            text="▶ Connect",
             command=self._toggle_connection,
             font=self.font_heading,
             bg=COLORS["accent_primary"],
             fg=COLORS["bg_primary"],
-            activebackground=COLORS["accent_primary_hover"],
+            activebackground=COLORS["warning"],
             activeforeground=COLORS["bg_primary"],
             relief=tk.FLAT,
             bd=0,
-            pady=SPACING["sm"],
-            padx=SPACING["md"],
-            cursor="hand2"
+            pady=8,
+            padx=12
         )
-        self.connect_btn.pack(padx=SPACING["md"], pady=SPACING["md"], fill=tk.X)
-        self._apply_button_hover(self.connect_btn, COLORS["accent_primary"], COLORS["accent_primary_hover"])
+        self.connect_btn.pack(padx=12, pady=8, fill=tk.X)
         
         # Separator
         separator = tk.Frame(sidebar, bg=COLORS["border"], height=1)
-        separator.pack(padx=SPACING["md"], pady=SPACING["lg"], fill=tk.X)
+        separator.pack(padx=12, pady=16, fill=tk.X)
         
-        # Quick actions with uppercase header
+        # Quick actions
         actions_header = tk.Label(
             sidebar,
-            text="QUICK ACTIONS",
-            font=self.font_subheading,
+            text="Quick Actions",
+            font=self.font_heading,
             bg=COLORS["bg_secondary"],
             fg=COLORS["accent_primary"]
         )
-        actions_header.pack(padx=SPACING["md"], pady=(SPACING["sm"], SPACING["sm"]), anchor=tk.W)
+        actions_header.pack(padx=12, pady=(8, 8), anchor=tk.W)
         
         action_buttons = [
-            ("📖  READ CONFIG", self._read_config, "Read current configuration"),
-            ("✏️   WRITE TO MODULE", self._write_to_module, "Write settings to device"),
-            ("💾  SAVE CONFIG", self._save_config, "Export configuration"),
-            ("📂  LOAD CONFIG", self._load_config, "Import configuration"),
-            ("🔄  RESET MODULE", self._reset_module, "Restart the device"),
+            ("📖 Read Config", self._read_config),
+            ("✏️  Write to Module", self._write_to_module),
+            ("💾 Save Config", self._save_config),
+            ("📂 Load Config", self._load_config),
+            ("🔄 Reset Module", self._reset_module),
         ]
         
-        for label, command, tooltip in action_buttons:
+        for label, command in action_buttons:
             btn = tk.Button(
                 sidebar,
                 text=label,
@@ -452,59 +320,48 @@ class E220ModernizedGUI:
                 activeforeground=COLORS["bg_primary"],
                 relief=tk.FLAT,
                 bd=0,
-                padx=SPACING["md"],
-                pady=SPACING["xs"],
-                cursor="hand2"
+                padx=8,
+                pady=6
             )
-            btn.pack(padx=SPACING["md"], pady=SPACING["xs"]/2, fill=tk.X)
-            self._apply_button_hover(btn, COLORS["bg_tertiary"], COLORS["bg_hover"])
-            
-            # Store button for reference
-            self.button_widgets.append(btn)
+            btn.pack(padx=12, pady=4, fill=tk.X)
     
     def _build_main_content(self, parent):
-        """Build main content area with tabs and enhanced styling"""
-        content = tk.Frame(parent, bg=COLORS["bg_secondary"], relief=tk.FLAT, bd=0)
+        """Build main content area with tabs"""
+        content = tk.Frame(parent, bg=COLORS["bg_secondary"])
         content.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
-        # Tab buttons with enhanced styling
-        tab_frame = tk.Frame(content, bg=COLORS["bg_tertiary"], relief=tk.FLAT, bd=0)
+        # Tab buttons (custom implementation for better styling)
+        tab_frame = tk.Frame(content, bg=COLORS["bg_tertiary"])
         tab_frame.pack(fill=tk.X, padx=0, pady=0)
-        
-        # Add bottom border to tab bar
-        tab_border = tk.Frame(tab_frame, bg=COLORS["border"], height=1)
-        tab_border.pack(side=tk.BOTTOM, fill=tk.X)
         
         self.tabs = {}
         self.tab_buttons = {}
         
         for i, (tab_name, tab_label) in enumerate([
-            ("basic", "BASIC SETTINGS"),
-            ("advanced", "ADVANCED SETTINGS"),
-            ("monitor", "MONITOR"),
+            ("basic", "Basic Settings"),
+            ("advanced", "Advanced Settings"),
+            ("monitor", "Monitor"),
         ]):
             btn = tk.Button(
                 tab_frame,
                 text=tab_label,
-                font=self.font_label_bold,
+                font=self.font_label,
                 bg=COLORS["bg_tertiary"],
                 fg=COLORS["text_secondary"],
                 activebackground=COLORS["accent_primary"],
                 activeforeground=COLORS["bg_primary"],
                 relief=tk.FLAT,
                 bd=0,
-                padx=SPACING["lg"],
-                pady=SPACING["md"],
-                command=lambda t=tab_name: self._switch_tab(t),
-                cursor="hand2"
+                padx=12,
+                pady=8,
+                command=lambda t=tab_name: self._switch_tab(t)
             )
-            btn.pack(side=tk.LEFT, padx=SPACING["xs"], pady=SPACING["xs"])
+            btn.pack(side=tk.LEFT, padx=4, pady=4)
             self.tab_buttons[tab_name] = btn
-            self._apply_button_hover(btn, COLORS["bg_tertiary"], COLORS["bg_hover"])
         
-        # Tab content area with spacing
+        # Tab content area
         self.tab_content = tk.Frame(content, bg=COLORS["bg_secondary"])
-        self.tab_content.pack(fill=tk.BOTH, expand=True, padx=SPACING["lg"], pady=SPACING["lg"])
+        self.tab_content.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
         
         # Build individual tabs
         self._build_basic_tab()
@@ -515,7 +372,7 @@ class E220ModernizedGUI:
         self._switch_tab("basic")
     
     def _build_basic_tab(self):
-        """Build basic settings tab with enhanced form components"""
+        """Build basic settings tab"""
         self.tabs["basic"] = tk.Frame(self.tab_content, bg=COLORS["bg_secondary"])
         
         # Address section
@@ -525,19 +382,18 @@ class E220ModernizedGUI:
         )
         
         # Frequency section (with live display)
-        freq_frame = self._add_parameter_row(self.tabs["basic"], "FREQUENCY", 1)
+        freq_frame = self._add_parameter_row(self.tabs["basic"], "Frequency", 1)
         
         channel_frame = tk.Frame(freq_frame, bg=COLORS["bg_secondary"])
-        channel_frame.pack(fill=tk.X, pady=SPACING["sm"])
+        channel_frame.pack(fill=tk.X, pady=4)
         
-        channel_label = tk.Label(
+        tk.Label(
             channel_frame,
             text="Channel (0-80)",
             font=self.font_label,
             bg=COLORS["bg_secondary"],
             fg=COLORS["text_secondary"]
-        )
-        channel_label.pack(side=tk.LEFT, padx=SPACING["sm"])
+        ).pack(side=tk.LEFT, padx=4)
         
         scale = tk.Scale(
             channel_frame,
@@ -547,53 +403,52 @@ class E220ModernizedGUI:
             bg=COLORS["bg_tertiary"],
             fg=COLORS["accent_primary"],
             troughcolor=COLORS["bg_secondary"],
-            command=lambda v: self._update_frequency_display(),
-            highlightthickness=0
+            command=lambda v: self._update_frequency_display()
         )
-        scale.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=SPACING["sm"])
+        scale.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
         
-        # Frequency display with depth effect
+        # Frequency display
         freq_display = tk.Frame(freq_frame, bg=COLORS["bg_tertiary"], relief=tk.SUNKEN, bd=1)
-        freq_display.pack(fill=tk.X, pady=SPACING["sm"])
+        freq_display.pack(fill=tk.X, pady=4)
         
         tk.Label(
             freq_display,
             textvariable=self.frequency_var,
-            font=self.font_value_lg,
+            font=self.font_value,
             bg=COLORS["bg_tertiary"],
             fg=COLORS["accent_primary"]
-        ).pack(padx=SPACING["md"], pady=SPACING["sm"])
+        ).pack(padx=8, pady=6)
         
         # UART settings - display labels but store indices
         baud_labels = [f"{UART_BAUD_RATES[i]} bps" for i in range(len(UART_BAUD_RATES))]
         self._add_labeled_combobox_field(
-            self.tabs["basic"], "UART BAUD RATE",
+            self.tabs["basic"], "UART Baud Rate",
             self.uart_baud_var, baud_labels,
             "Serial port communication speed", 2
         )
         
         self._add_labeled_combobox_field(
-            self.tabs["basic"], "UART PARITY",
+            self.tabs["basic"], "UART Parity",
             self.parity_var, PARITY_LABELS,
             "Serial port parity setting", 3
         )
         
         # Radio settings - display labels but store indices
         self._add_labeled_combobox_field(
-            self.tabs["basic"], "AIR DATA RATE",
+            self.tabs["basic"], "Air Data Rate",
             self.air_rate_var, AIR_RATE_LABELS,
             "Wireless transmission speed (kbps)", 4
         )
         
         # Transmit Power - supports all 4 power levels (30/27/24/21 dBm)
         self._add_labeled_combobox_field(
-            self.tabs["basic"], "TRANSMIT POWER",
+            self.tabs["basic"], "Transmit Power",
             self.power_var, TX_POWER_LABELS,
             "RF transmitter output power level", 5
         )
     
     def _build_advanced_tab(self):
-        """Build advanced settings tab with enhanced styling"""
+        """Build advanced settings tab"""
         self.tabs["advanced"] = tk.Frame(self.tab_content, bg=COLORS["bg_secondary"])
         
         # WOR and transmission mode
@@ -615,15 +470,15 @@ class E220ModernizedGUI:
             "Maximum bytes per wireless packet", 2
         )
         
-        # E220-specific features with section header
+        # E220-specific features
         section_header = tk.Label(
             self.tabs["advanced"],
-            text="E220-SPECIFIC FEATURES",
-            font=self.font_subheading,
+            text="E220-Specific Features",
+            font=self.font_heading,
             bg=COLORS["bg_secondary"],
             fg=COLORS["accent_secondary"]
         )
-        section_header.pack(padx=SPACING["md"], pady=(SPACING["lg"], SPACING["sm"]), anchor=tk.W)
+        section_header.pack(padx=12, pady=(16, 8), anchor=tk.W)
         
         self._add_checkbox_field(
             self.tabs["advanced"], "Listen Before Talk (LBT)",
@@ -650,22 +505,21 @@ class E220ModernizedGUI:
         )
     
     def _build_monitor_tab(self):
-        """Build monitoring/debugging tab with enhanced display"""
+        """Build monitoring/debugging tab"""
         self.tabs["monitor"] = tk.Frame(self.tab_content, bg=COLORS["bg_secondary"])
         
-        # Register display header
+        # Register display
         header = tk.Label(
             self.tabs["monitor"],
-            text="REGISTER VALUES (HEX)",
-            font=self.font_subheading,
+            text="Register Values (Hex)",
+            font=self.font_heading,
             bg=COLORS["bg_secondary"],
             fg=COLORS["accent_primary"]
         )
-        header.pack(padx=SPACING["md"], pady=SPACING["md"], anchor=tk.W)
+        header.pack(padx=12, pady=12, anchor=tk.W)
         
-        # Register display with depth effect
         reg_frame = tk.Frame(self.tabs["monitor"], bg=COLORS["bg_tertiary"], relief=tk.SUNKEN, bd=1)
-        reg_frame.pack(fill=tk.BOTH, expand=True, padx=SPACING["md"], pady=SPACING["md"])
+        reg_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=8)
         
         self.register_text = tk.Label(
             reg_frame,
@@ -675,120 +529,93 @@ class E220ModernizedGUI:
             fg=COLORS["accent_secondary"],
             justify=tk.LEFT
         )
-        self.register_text.pack(padx=SPACING["md"], pady=SPACING["md"])
+        self.register_text.pack(padx=8, pady=8)
         
-        # Refresh button with hover effect
+        # Refresh button
         refresh_btn = tk.Button(
             self.tabs["monitor"],
-            text="🔄  REFRESH REGISTERS",
+            text="🔄 Refresh Registers",
             command=self._refresh_registers,
-            font=self.font_label_bold,
+            font=self.font_label,
             bg=COLORS["bg_tertiary"],
             fg=COLORS["text_primary"],
             activebackground=COLORS["accent_secondary"],
             activeforeground=COLORS["bg_primary"],
             relief=tk.FLAT,
             bd=0,
-            padx=SPACING["md"],
-            pady=SPACING["sm"],
-            cursor="hand2"
+            padx=12,
+            pady=6
         )
-        refresh_btn.pack(padx=SPACING["md"], pady=SPACING["md"])
-        self._apply_button_hover(refresh_btn, COLORS["bg_tertiary"], COLORS["bg_hover"])
+        refresh_btn.pack(padx=12, pady=8)
     
     def _build_right_panel(self, parent):
-        """Build right info panel with real-time status and enhanced design"""
-        panel = tk.Frame(parent, bg=COLORS["bg_secondary"], relief=tk.FLAT, bd=0)
-        panel.pack(side=tk.RIGHT, fill=tk.BOTH, padx=(SPACING["md"], 0))
+        """Build right info panel with real-time status"""
+        panel = tk.Frame(parent, bg=COLORS["bg_secondary"], width=260)
+        panel.pack(side=tk.RIGHT, fill=tk.BOTH, padx=(12, 0))
         panel.pack_propagate(False)
-        panel.configure(width=290)
         
-        # Add subtle left border effect
-        border = tk.Frame(panel, bg=COLORS["border"], width=1)
-        border.pack(side=tk.LEFT, fill=tk.Y)
-        
-        # Header with uppercase
         header = tk.Label(
             panel,
-            text="QUICK INFO",
-            font=self.font_subheading,
+            text="Quick Info",
+            font=self.font_heading,
             bg=COLORS["bg_secondary"],
             fg=COLORS["accent_secondary"]
         )
-        header.pack(padx=SPACING["md"], pady=(SPACING["md"], SPACING["sm"]), anchor=tk.W)
+        header.pack(padx=12, pady=(12, 8), anchor=tk.W)
         
-        # Info items with enhanced styling
+        # Info items
         self.info_labels = {}
         info_items = [
-            ("Frequency", "frequency_var", "MHz"),
-            ("Baud Rate", "uart_baud_var", "bps"),
-            ("Air Rate", "air_rate_var", "kbps"),
-            ("Power", "power_var", "dBm"),
-            ("Channel", "channel_var", ""),
-            ("Address", "address_var", ""),
+            ("Frequency", "frequency_var"),
+            ("Baud Rate", "uart_baud_var"),
+            ("Air Rate", "air_rate_var"),
+            ("Power", "power_var"),
+            ("Channel", "channel_var"),
+            ("Address", "address_var"),
         ]
         
-        for label, var_name, unit in info_items:
+        for label, var_name in info_items:
             info_frame = tk.Frame(panel, bg=COLORS["bg_secondary"])
-            info_frame.pack(fill=tk.X, padx=SPACING["md"], pady=SPACING["sm"])
+            info_frame.pack(fill=tk.X, padx=12, pady=6)
             
-            label_widget = tk.Label(
+            tk.Label(
                 info_frame,
                 text=f"{label}:",
                 font=self.font_label,
                 bg=COLORS["bg_secondary"],
                 fg=COLORS["text_secondary"]
-            )
-            label_widget.pack(anchor=tk.W)
-            
-            value_frame = tk.Frame(info_frame, bg=COLORS["bg_secondary"])
-            value_frame.pack(anchor=tk.W, fill=tk.X)
+            ).pack(anchor=tk.W)
             
             value_label = tk.Label(
-                value_frame,
+                info_frame,
                 text="—",
-                font=self.font_value_lg,
+                font=self.font_value,
                 bg=COLORS["bg_secondary"],
                 fg=COLORS["accent_primary"]
             )
-            value_label.pack(side=tk.LEFT)
-            
-            if unit:
-                unit_label = tk.Label(
-                    value_frame,
-                    text=f" {unit}",
-                    font=self.font_hint,
-                    bg=COLORS["bg_secondary"],
-                    fg=COLORS["text_tertiary"]
-                )
-                unit_label.pack(side=tk.LEFT, padx=(SPACING["xs"], 0))
+            value_label.pack(anchor=tk.W, padx=(8, 0))
             
             self.info_labels[label.lower()] = value_label
     
     def _build_footer(self, parent):
-        """Build bottom footer with status bar and depth effect"""
-        footer = tk.Frame(parent, bg=COLORS["bg_secondary"], relief=tk.FLAT, bd=0)
+        """Build bottom footer with status bar"""
+        footer = tk.Frame(parent, bg=COLORS["bg_secondary"], height=40)
         footer.pack(fill=tk.X, side=tk.BOTTOM, padx=0, pady=0)
-        
-        # Add top border (depth effect)
-        border = tk.Frame(footer, bg=COLORS["border"], height=1)
-        border.pack(side=tk.TOP, fill=tk.X)
+        footer.pack_propagate(False)
         
         status = tk.Label(
             footer,
-            text="● Ready — Configuration tool for EBYTE E220 LoRa modules",
-            font=self.font_hint,
+            text="● Ready",
+            font=self.font_label,
             bg=COLORS["bg_secondary"],
             fg=COLORS["text_tertiary"]
         )
-        status.pack(side=tk.LEFT, padx=SPACING["lg"], pady=SPACING["md"])
+        status.pack(side=tk.LEFT, padx=16, pady=8)
     
-    # ========================================================================
     # UI Helper Methods
-    # ========================================================================
     
     def _add_parameter_field(self, parent, label, variable, hint, row):
-        """Add a text input field for a parameter with enhanced styling"""
+        """Add a text input field for a parameter"""
         row_frame = self._add_parameter_row(parent, label, row, hint)
         
         entry = tk.Entry(
@@ -800,22 +627,9 @@ class E220ModernizedGUI:
             insertbackground=COLORS["accent_primary"],
             relief=tk.FLAT,
             bd=0,
-            width=20,
-            highlightthickness=1,
-            highlightbackground=COLORS["border"],
-            highlightcolor=COLORS["border_focus"]
+            width=20
         )
-        entry.pack(side=tk.LEFT, padx=SPACING["sm"], fill=tk.X, expand=True)
-        
-        # Focus effects
-        def on_focus_in(event):
-            entry.config(highlightbackground=COLORS["border_focus"], highlightcolor=COLORS["accent_primary"])
-        
-        def on_focus_out(event):
-            entry.config(highlightbackground=COLORS["border"], highlightcolor=COLORS["border"])
-        
-        entry.bind("<FocusIn>", on_focus_in)
-        entry.bind("<FocusOut>", on_focus_out)
+        entry.pack(side=tk.LEFT, padx=4, fill=tk.X, expand=True)
     
     def _add_combobox_field(self, parent, label, variable, values, hint, row):
         """Add a dropdown field for a parameter"""
@@ -828,7 +642,7 @@ class E220ModernizedGUI:
             state="readonly",
             width=20
         )
-        combo.pack(side=tk.LEFT, padx=SPACING["sm"], fill=tk.X, expand=True)
+        combo.pack(side=tk.LEFT, padx=4, fill=tk.X, expand=True)
     
     def _add_labeled_combobox_field(self, parent, label, variable, display_values, hint, row):
         """Add a dropdown field that displays labels but stores indices.
@@ -845,13 +659,14 @@ class E220ModernizedGUI:
             state="readonly",
             width=20
         )
-        combo.pack(side=tk.LEFT, padx=SPACING["sm"], fill=tk.X, expand=True)
+        combo.pack(side=tk.LEFT, padx=4, fill=tk.X, expand=True)
         
         # When user selects from dropdown, update the variable with the index
         def on_select(event=None):
             selected_label = combo.get()
             if selected_label:
                 try:
+                    # Find the index of the selected label
                     index = display_values.index(selected_label)
                     variable.set(index)
                 except ValueError:
@@ -879,9 +694,9 @@ class E220ModernizedGUI:
             pass
     
     def _add_checkbox_field(self, parent, label, variable, hint, row):
-        """Add a checkbox field for a parameter with enhanced styling"""
+        """Add a checkbox field for a parameter"""
         row_frame = tk.Frame(parent, bg=COLORS["bg_secondary"])
-        row_frame.pack(fill=tk.X, padx=SPACING["md"], pady=SPACING["md"])
+        row_frame.pack(fill=tk.X, padx=12, pady=8)
         
         checkbox = tk.Checkbutton(
             row_frame,
@@ -894,8 +709,7 @@ class E220ModernizedGUI:
             activeforeground=COLORS["accent_primary"],
             selectcolor=COLORS["accent_primary"],
             relief=tk.FLAT,
-            bd=0,
-            cursor="hand2"
+            bd=0
         )
         checkbox.pack(anchor=tk.W)
         
@@ -906,22 +720,21 @@ class E220ModernizedGUI:
             bg=COLORS["bg_secondary"],
             fg=COLORS["text_tertiary"]
         )
-        hint_label.pack(anchor=tk.W, padx=(20, 0), pady=(SPACING["xs"], 0))
+        hint_label.pack(anchor=tk.W, padx=(20, 0), pady=(2, 0))
     
     def _add_parameter_row(self, parent, label, row, hint=""):
-        """Add a parameter row with label and consistent spacing"""
+        """Add a parameter row with label"""
         row_frame = tk.Frame(parent, bg=COLORS["bg_secondary"])
-        row_frame.pack(fill=tk.X, padx=SPACING["md"], pady=SPACING["md"])
+        row_frame.pack(fill=tk.X, padx=12, pady=8)
         
-        # Uppercase label for consistency
         label_widget = tk.Label(
             row_frame,
-            text=label.upper(),
-            font=self.font_label_bold,
+            text=label,
+            font=self.font_label,
             bg=COLORS["bg_secondary"],
             fg=COLORS["text_secondary"]
         )
-        label_widget.pack(anchor=tk.W, pady=(0, SPACING["xs"]))
+        label_widget.pack(anchor=tk.W, pady=(0, 4))
         
         if hint:
             hint_widget = tk.Label(
@@ -931,41 +744,33 @@ class E220ModernizedGUI:
                 bg=COLORS["bg_secondary"],
                 fg=COLORS["text_tertiary"]
             )
-            hint_widget.pack(anchor=tk.W, pady=(0, SPACING["xs"]))
+            hint_widget.pack(anchor=tk.W, pady=(0, 4))
         
         return row_frame
     
     def _switch_tab(self, tab_name):
-        """Switch to a different tab with visual feedback"""
+        """Switch to a different tab"""
         # Hide all tabs
         for tab in self.tabs.values():
             tab.pack_forget()
         
         # Reset button colors
-        for btn_name, btn in self.tab_buttons.items():
-            if btn_name == tab_name:
-                btn.config(
-                    bg=COLORS["accent_primary"],
-                    fg=COLORS["bg_primary"]
-                )
-            else:
-                btn.config(
-                    bg=COLORS["bg_tertiary"],
-                    fg=COLORS["text_secondary"]
-                )
+        for btn in self.tab_buttons.values():
+            btn.config(bg=COLORS["bg_tertiary"], fg=COLORS["text_secondary"])
         
         # Show selected tab
         self.tabs[tab_name].pack(fill=tk.BOTH, expand=True)
+        self.tab_buttons[tab_name].config(bg=COLORS["accent_primary"], fg=COLORS["bg_primary"])
     
     def _update_frequency_display(self):
         """Update the frequency display based on channel"""
         channel = self.channel_var.get()
         freq = FREQ_BASE + channel * FREQ_STEP
         self.frequency_var.set(f"{freq:.3f} MHz")
-        self.info_labels["frequency"].config(text=f"{freq:.3f}")
+        self.info_labels["frequency"].config(text=f"{freq:.3f} MHz")
     
     def _toggle_connection(self):
-        """Connect or disconnect from the module with visual feedback"""
+        """Connect or disconnect from the module"""
         if not self.connected:
             port = self.port_var.get()
             baud = self.baudrate_var.get()
@@ -978,20 +783,9 @@ class E220ModernizedGUI:
                 self.module = E220Module(port=port, baudrate=baud)
                 if self.module.connect():
                     self.connected = True
-                    self.status_var.set(f"Connected ({port})")
-                    self.status_indicator.config(
-                        fg=COLORS["success"],
-                        text="● Connected"
-                    )
-                    self.connect_btn.config(
-                        text="▶  DISCONNECT",
-                        bg=COLORS["error"]
-                    )
-                    self._apply_button_hover(
-                        self.connect_btn,
-                        COLORS["error"],
-                        COLORS["error_hover"]
-                    )
+                    self.status_var.set(f"● Connected ({port})")
+                    self.status_indicator.config(fg=COLORS["success"])
+                    self.connect_btn.config(text="▶ Disconnect", bg=COLORS["error"])
                     self._read_config()
                 else:
                     messagebox.showerror("Error", "Failed to connect to module")
@@ -1001,20 +795,9 @@ class E220ModernizedGUI:
             if self.module:
                 self.module.disconnect()
             self.connected = False
-            self.status_var.set("Disconnected")
-            self.status_indicator.config(
-                fg=COLORS["text_tertiary"],
-                text="● Disconnected"
-            )
-            self.connect_btn.config(
-                text="▶  CONNECT",
-                bg=COLORS["accent_primary"]
-            )
-            self._apply_button_hover(
-                self.connect_btn,
-                COLORS["accent_primary"],
-                COLORS["accent_primary_hover"]
-            )
+            self.status_var.set("● Disconnected")
+            self.status_indicator.config(fg=COLORS["text_tertiary"])
+            self.connect_btn.config(text="▶ Connect", bg=COLORS["accent_primary"])
     
     def _refresh_ports(self):
         """Refresh list of available serial ports"""
@@ -1079,6 +862,7 @@ class E220ModernizedGUI:
         
         if messagebox.askyesno("Confirm", "Write these settings to the module?"):
             try:
+                # Collect all values from GUI
                 params = {
                     "address": int(self.address_var.get()),
                     "chan": int(self.channel_var.get()),
@@ -1088,6 +872,7 @@ class E220ModernizedGUI:
                     "transmission_power": int(self.power_var.get()),
                 }
                 
+                # Debug: Log what we're about to send
                 print(f"DEBUG: Writing parameters:")
                 print(f"  UART Baud: {params['uart_baud']} ({UART_BAUD_RATES[params['uart_baud']]} bps)")
                 print(f"  Parity: {params['parity']} ({PARITY_LABELS[params['parity']]})")
@@ -1095,6 +880,7 @@ class E220ModernizedGUI:
                 print(f"  Power: {params['transmission_power']} ({TX_POWER_LABELS[params['transmission_power']]})")
                 print(f"  Channel: {params['chan']}")
                 
+                # Send to module
                 if self.module.set_parameters(params):
                     self._refresh_registers()
                     messagebox.showinfo("Success", "Configuration written to module successfully")
@@ -1121,6 +907,7 @@ class E220ModernizedGUI:
                 with open(file_path, 'r') as f:
                     params = json.load(f)
                 
+                # Apply parameters
                 if self.module.set_parameters(params):
                     self._read_config()
                     messagebox.showinfo("Success", "Configuration applied successfully")
@@ -1130,7 +917,7 @@ class E220ModernizedGUI:
                 messagebox.showerror("Error", f"Failed to load configuration: {e}")
     
     def _reset_module(self):
-        """Reset the module with confirmation"""
+        """Reset the module"""
         if not self.module or not self.connected:
             messagebox.showwarning("Warning", "Module not connected")
             return
@@ -1157,16 +944,23 @@ class E220ModernizedGUI:
         except:
             self.register_text.config(text="Error reading registers")
     
-    # ========================================================================
     # Display label helper methods
-    # ========================================================================
-    
     def _update_baud_display(self, *args):
-        """Update baud rate display label with smooth transitions"""
+        """Update baud rate display label"""
         try:
             idx = int(self.uart_baud_var.get())
             if 0 <= idx < len(UART_BAUD_RATES):
-                self.info_labels["baud rate"].config(text=f"{UART_BAUD_RATES[idx]}")
+                self.info_labels["baud rate"].config(text=f"{UART_BAUD_RATES[idx]} bps")
+        except:
+            pass
+    
+    def _update_parity_display(self, *args):
+        """Update parity display label"""
+        try:
+            idx = int(self.parity_var.get())
+            if 0 <= idx < len(PARITY_LABELS):
+                # Parity is not in info_labels, skip
+                pass
         except:
             pass
     
@@ -1188,33 +982,10 @@ class E220ModernizedGUI:
         except:
             pass
     
-    # ========================================================================
-    # Animation and Effects
-    # ========================================================================
-    
-    def _start_animation(self):
-        """Start the animation loop for pulsing indicators"""
-        self._animate_status()
-    
-    def _animate_status(self):
-        """Animate status indicator with pulsing effect"""
-        if self.connected:
-            # Pulse between bright and dim
-            self.pulse_state = not self.pulse_state
-            color = COLORS["success"] if self.pulse_state else COLORS["success_hover"]
-            self.status_indicator.config(fg=color)
-        
-        # Schedule next animation frame (every 800ms)
-        self.animation_id = self.root.after(800, self._animate_status)
-    
     def _on_close(self):
-        """Handle window close with cleanup"""
-        if self.animation_id:
-            self.root.after_cancel(self.animation_id)
-        
+        """Handle window close"""
         if self.connected and self.module:
             self.module.disconnect()
-        
         self.root.destroy()
 
 
@@ -1225,7 +996,7 @@ class E220ModernizedGUI:
 def main():
     """Main entry point"""
     root = tk.Tk()
-    app = E220ModernizedGUI(root)
+    app = E220ImpeccableGUI(root)
     root.mainloop()
 
 
