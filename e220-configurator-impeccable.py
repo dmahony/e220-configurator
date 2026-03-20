@@ -72,9 +72,9 @@ COLORS = {
     "bg_active": "#333333",            # Active state background
     
     # Accent colors
-    "accent_primary": "#d97706",        # Warm amber (900 MHz band color)
-    "accent_primary_hover": "#ea580c",  # Lighter amber for hover
-    "accent_primary_dark": "#b45309",   # Darker amber for active
+    "accent_primary": "#3b82f6",        # Warm amber (900 MHz band color)
+    "accent_primary_hover": "#60a5fa",  # Lighter amber for hover
+    "accent_primary_dark": "#1d4ed8",   # Darker amber for active
     "accent_secondary": "#06b6d4",      # Teal (frequency complementary)
     "accent_secondary_hover": "#22d3ee",# Lighter teal for hover
     
@@ -93,7 +93,7 @@ COLORS = {
     
     # UI elements
     "border": "#404040",                # Subtle borders
-    "border_focus": "#d97706",          # Accent color for focus borders
+    "border_focus": "#3b82f6",          # Accent color for focus borders
     "border_error": "#ef4444",          # Red border for errors
     "shadow": "#000000",                # Shadow color
 }
