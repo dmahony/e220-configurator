@@ -222,7 +222,9 @@ def _build_registers(params, existing_regs=None):
     # Transmit power
     if "transmission_power" in params:
         pwr = int(params["transmission_power"])
-        regs[REG_POWER] = ((pwr & 0x03) << 6) | (regs[REG_POWER] & 0x3F)
+        new_power_reg = ((pwr & 0x03) << 6) | (regs[REG_POWER] & 0x3F)
+        logger.debug(f"Power: index {pwr} -> register byte 0x{new_power_reg:02X} (kept lower bits 0x{regs[REG_POWER] & 0x3F:02X} from existing)")
+        regs[REG_POWER] = new_power_reg
 
     # Channel
     if "chan" in params:
