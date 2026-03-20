@@ -297,6 +297,7 @@ class E220ImpeccableGUI:
         
         action_buttons = [
             ("📖 Read Config", self._read_config),
+            ("✏️  Write to Module", self._write_to_module),
             ("💾 Save Config", self._save_config),
             ("📂 Load Config", self._load_config),
             ("🔄 Reset Module", self._reset_module),
@@ -792,6 +793,35 @@ class E220ImpeccableGUI:
                 messagebox.showinfo("Success", f"Configuration saved to {file_path}")
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to save configuration: {e}")
+    
+    def _write_to_module(self):
+        """Write current GUI values to the hardware module"""
+        if not self.module or not self.connected:
+            messagebox.showwarning("Warning", "Module not connected")
+            return
+        
+        if messagebox.askyesno("Confirm", "Write these settings to the module?"):
+            try:
+                # Collect all values from GUI
+                params = {
+                    "address": int(self.address_var.get()),
+                    "chan": int(self.channel_var.get()),
+                    "uart_baud": int(self.uart_baud_var.get()),
+                    "parity": int(self.parity_var.get()),
+                    "air_data_rate": int(self.air_rate_var.get()),
+                    "transmission_power": int(self.power_var.get()),
+                }
+                
+                # Send to module
+                if self.module.set_parameters(params):
+                    self._refresh_registers()
+                    messagebox.showinfo("Success", "Configuration written to module successfully")
+                else:
+                    messagebox.showerror("Error", "Failed to write configuration to module")
+            except ValueError as e:
+                messagebox.showerror("Error", f"Invalid value entered: {e}")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to write to module: {e}")
     
     def _load_config(self):
         """Load configuration from file"""
