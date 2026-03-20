@@ -140,6 +140,11 @@ class E220ImpeccableGUI:
         # Status
         self.status_var = tk.StringVar(value="●  Disconnected")
         self.frequency_var = tk.StringVar(value="900.125 MHz")
+        
+        # Add trace callbacks for display label updates
+        self.uart_baud_var.trace_add("write", self._update_baud_display)
+        self.air_rate_var.trace_add("write", self._update_air_rate_display)
+        self.power_var.trace_add("write", self._update_power_display)
     
     def _build_ui(self):
         """Build the complete UI with impeccable design"""
@@ -414,29 +419,29 @@ class E220ImpeccableGUI:
             fg=COLORS["accent_primary"]
         ).pack(padx=8, pady=6)
         
-        # UART settings
+        # UART settings - use indices, not labels
         self._add_combobox_field(
             self.tabs["basic"], "UART Baud Rate",
-            self.uart_baud_var, UART_BAUD_RATES,
+            self.uart_baud_var, list(range(len(UART_BAUD_RATES))),
             "Serial port communication speed", 2
         )
         
         self._add_combobox_field(
             self.tabs["basic"], "UART Parity",
-            self.parity_var, PARITY_LABELS,
+            self.parity_var, list(range(len(PARITY_LABELS))),
             "Serial port parity setting", 3
         )
         
-        # Radio settings
+        # Radio settings - use indices, not labels
         self._add_combobox_field(
             self.tabs["basic"], "Air Data Rate",
-            self.air_rate_var, AIR_RATE_LABELS,
+            self.air_rate_var, list(range(len(AIR_RATE_LABELS))),
             "Wireless transmission speed (kbps)", 4
         )
         
         self._add_combobox_field(
             self.tabs["basic"], "Transmit Power",
-            self.power_var, TX_POWER_LABELS,
+            self.power_var, list(range(len(TX_POWER_LABELS))),
             "RF transmitter output power", 5
         )
     
@@ -875,6 +880,44 @@ class E220ImpeccableGUI:
                 self.register_text.config(text=hex_str)
         except:
             self.register_text.config(text="Error reading registers")
+    
+    # Display label helper methods
+    def _update_baud_display(self, *args):
+        """Update baud rate display label"""
+        try:
+            idx = int(self.uart_baud_var.get())
+            if 0 <= idx < len(UART_BAUD_RATES):
+                self.info_labels["baud rate"].config(text=f"{UART_BAUD_RATES[idx]} bps")
+        except:
+            pass
+    
+    def _update_parity_display(self, *args):
+        """Update parity display label"""
+        try:
+            idx = int(self.parity_var.get())
+            if 0 <= idx < len(PARITY_LABELS):
+                # Parity is not in info_labels, skip
+                pass
+        except:
+            pass
+    
+    def _update_air_rate_display(self, *args):
+        """Update air rate display label"""
+        try:
+            idx = int(self.air_rate_var.get())
+            if 0 <= idx < len(AIR_RATE_LABELS):
+                self.info_labels["air rate"].config(text=AIR_RATE_LABELS[idx])
+        except:
+            pass
+    
+    def _update_power_display(self, *args):
+        """Update power display label"""
+        try:
+            idx = int(self.power_var.get())
+            if 0 <= idx < len(TX_POWER_LABELS):
+                self.info_labels["power"].config(text=TX_POWER_LABELS[idx])
+        except:
+            pass
     
     def _on_close(self):
         """Handle window close"""
