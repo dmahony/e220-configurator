@@ -434,11 +434,12 @@ class E220ModernizedGUI:
         
         action_buttons = [
             ("📖  READ CONFIG", self._read_config, "Read current configuration"),
-            ("✏️   WRITE TO MODULE", self._write_to_module, "Write settings to device"),
+            ("✏️  WRITE TO MODULE", self._write_to_module, "Write settings to device"),
             ("💾  SAVE CONFIG", self._save_config, "Export configuration"),
             ("📂  LOAD CONFIG", self._load_config, "Import configuration"),
             ("🔄  RESET MODULE", self._reset_module, "Restart the device"),
         ]
+
         
         for label, command, tooltip in action_buttons:
             btn = tk.Button(
@@ -454,7 +455,9 @@ class E220ModernizedGUI:
                 bd=0,
                 padx=SPACING["md"],
                 pady=SPACING["xs"],
-                cursor="hand2"
+                cursor="hand2",
+                anchor=tk.W,
+                justify=tk.LEFT
             )
             btn.pack(padx=SPACING["md"], pady=SPACING["xs"]/2, fill=tk.X)
             self._apply_button_hover(btn, COLORS["bg_tertiary"], COLORS["bg_hover"])
