@@ -440,10 +440,13 @@ class E220ImpeccableGUI:
             "Wireless transmission speed (kbps)", 4
         )
         
+        # Transmit Power - Note: This module only supports indices 0-1 (30dBm, 27dBm)
+        # Indices 2-3 are not supported by the module firmware
+        power_labels = TX_POWER_LABELS[:2]  # Only show supported power levels
         self._add_labeled_combobox_field(
             self.tabs["basic"], "Transmit Power",
-            self.power_var, TX_POWER_LABELS,
-            "RF transmitter output power", 5
+            self.power_var, power_labels,
+            "RF transmitter output power (30dBm max, 27dBm available)", 5
         )
     
     def _build_advanced_tab(self):
