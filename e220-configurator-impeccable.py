@@ -1098,18 +1098,10 @@ class E220ModernizedGUI:
                 messagebox.showerror("Error", f"Failed to reset module: {e}")
     
     def _refresh_registers(self):
-        """Refresh and display register values"""
-        if not self.module or not self.connected:
-            self.register_text.config(text="No data")
-            return
-        
-        try:
-            regs = self.module._read_registers()
-            if regs:
-                hex_str = " ".join(f"{b:02X}" for b in regs)
-                self.register_text.config(text=hex_str)
-        except:
-            self.register_text.config(text="Error reading registers")
+        """Refresh and display register values (deprecated - monitor tab removed)"""
+        # This method is kept for compatibility but does nothing
+        # Register display was moved to quick info panel
+        pass
     
     # ========================================================================
     # Display label helper methods
