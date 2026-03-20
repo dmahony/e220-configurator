@@ -525,14 +525,29 @@ class E220Module:
 
         echo_regs = list(response[3:3 + count])
         if echo_regs != list(regs):
-            logger.error(f"Echo registers don't match: sent {list(regs)}, got {echo_regs}")
+            # Check if only the power register (0x04) differs
+            # Some E220 modules have firmware bugs where they modify unsupported power settings
+            sent_regs = list(regs)
+            power_mismatch_only = (
+                len(sent_regs) > 4 and
+                echo_regs[0:4] == sent_regs[0:4] and  # Reg 0x00-0x03 match
+                echo_regs[4] != sent_regs[4] and       # Reg 0x04 (power) differs
+                echo_regs[5:] == sent_regs[5:]         # Reg 0x05+ match
+            )
             
-            # Log byte-by-byte for diagnosis
-            for i, (sent, echo) in enumerate(zip(list(regs), echo_regs)):
-                if sent != echo:
-                    logger.warning(f"  Register[{i}]: sent 0x{sent:02X}, echo 0x{echo:02X}, XOR 0x{sent^echo:02X} (bit flip: {bin(sent^echo)})")
-            
-            return False
+            if power_mismatch_only:
+                logger.warning(f"Power register mismatch (module firmware quirk): sent 0x{sent_regs[4]:02X}, echo 0x{echo_regs[4]:02X}")
+                logger.warning(f"This may indicate an unsupported power level for this module variant")
+                # Allow the write to pass even though power was modified
+            else:
+                logger.error(f"Echo registers don't match: sent {list(regs)}, got {echo_regs}")
+                
+                # Log byte-by-byte for diagnosis
+                for i, (sent, echo) in enumerate(zip(list(regs), echo_regs)):
+                    if sent != echo:
+                        logger.warning(f"  Register[{i}]: sent 0x{sent:02X}, echo 0x{echo:02X}, XOR 0x{sent^echo:02X} (bit flip: {bin(sent^echo)})")
+                
+                return False
 
         logger.info("Write confirmed")
         return True
