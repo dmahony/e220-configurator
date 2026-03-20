@@ -306,8 +306,19 @@ class E220Module:
                 timeout=self.timeout,
                 bytesize=serial.EIGHTBITS,
                 parity=serial.PARITY_NONE,
-                stopbits=serial.STOPBITS_ONE
+                stopbits=serial.STOPBITS_ONE,
+                xonxoff=False,      # Disable software flow control
+                rtscts=False,        # Disable hardware flow control (Windows COM port issue)
+                dsrdtr=False         # Disable DSR/DTR handshaking
             )
+            # For Windows: explicitly manage DTR/RTS
+            try:
+                self.serial.dtr = True
+                self.serial.rts = True
+            except:
+                pass  # Not all serial implementations support these
+            
+            time.sleep(0.5)  # Longer delay for port to settle (Windows needs more time)
             logger.info(f"Connected to port {self.port} at {self.baudrate} baud")
             return True
         except serial.SerialException as e:
@@ -534,17 +545,24 @@ class E220Module:
         try:
             self.serial.reset_input_buffer()
             # Try reading address register — if we get a valid 0xC1 response, we're in config mode
-            cmd = [CMD_READ, REG_ADDH, 1]
-            self.serial.write(bytes(cmd))
-            time.sleep(0.1)
+            # Retry up to 3 times for Windows COM port reliability
+            for attempt in range(3):
+                cmd = [CMD_READ, REG_ADDH, 1]
+                self.serial.write(bytes(cmd))
+                self.serial.flush()
+                time.sleep(0.3)  # Increased delay for module response
+                
+                if self.serial.in_waiting >= 4:
+                    resp = self.serial.read(self.serial.in_waiting)
+                    if resp and resp[0] == CMD_READ and resp[1] == REG_ADDH:
+                        logger.info("Configuration mode verified via register read")
+                        return True
+                
+                # Clear buffer and retry if no valid response
+                self.serial.reset_input_buffer()
+                time.sleep(0.1)
 
-            if self.serial.in_waiting >= 4:
-                resp = self.serial.read(self.serial.in_waiting)
-                if resp and resp[0] == CMD_READ and resp[1] == REG_ADDH:
-                    logger.info("Configuration mode verified via register read")
-                    return True
-
-            logger.debug("No valid configuration mode response")
+            logger.debug("No valid configuration mode response after 3 attempts")
         except Exception as e:
             logger.debug(f"Exception when checking config mode: {e}")
 
